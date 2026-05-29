@@ -1,0 +1,5 @@
+#yolo图片目标检测接口测试
+curl -X POST "http://127.0.0.1:8000/yoloDetected" -F "file=@imgs/hanzhong_car_02.jpg"  -F "class_name=car"
+
+#yolo视频目标检测接口测试
+curl -X POST "http://127.0.0.1:8000/yoloVideoDetected" -F "file=@videos/street001.mp4;type=video/mp4" -F "class_name=car"

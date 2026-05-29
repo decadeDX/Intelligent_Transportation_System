@@ -1,0 +1,39 @@
+# CMake 构建目录、缓存
+build/
+Build/
+cmake-build-*/
+CMakeCache.txt
+cmake_install.cmake
+CMakeFiles/
+*.cmake
+
+# Qt 相关临时、编译文件
+*.pro.user
+*.pro.user.*
+*.qrc.bak
+*.ui.bak
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# 可执行程序、库、编译产物
+*.exe
+*.dll
+*.lib
+*.a
+*.so
+*.out
+*.o
+*.obj
+
+# 日志、临时文件
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
