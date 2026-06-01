@@ -81,5 +81,6 @@ __pycache__/
 *.trt
 
 # 项目专属：上传素材、测试文件
-backend/upload/
-backend/test/
+/front/backend/upload/
+/front/backend/test/
+/front/backend/Chinese_license_plate_detection_recognition-main/
