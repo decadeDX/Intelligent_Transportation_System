@@ -29,6 +29,9 @@ qt_add_qml_module(appfront
         qml/TrafficFlowDected.qml
         qml/TrafficSignDected.qml
         qml/DriverLicenseDected.qml
+    SOURCES
+        service/ImageCarPersonDetectService.h service/ImageCarPersonDetectService.cpp
+        SOURCES service/VideoCarpersonDetectService.h service/VideoCarpersonDetectService.cpp
 
 )
 
@@ -48,6 +51,12 @@ target_link_libraries(appfront
     PRIVATE Qt6::QuickControls2
     PRIVATE Qt6::Network
 )
+
+target_include_directories(appfront PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/service
+
+)
+
 
 install(TARGETS appfront
     BUNDLE DESTINATION .

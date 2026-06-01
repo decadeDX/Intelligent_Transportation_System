@@ -158,7 +158,7 @@ ApplicationWindow {
         anchors.centerIn: parent
 
         Text {
-            text: qsTr("基于 Qt Quick 的 YOLO 目标检测演示程序\n\n\n\n© 2019-2025 作者：西蒙牛")
+            text: qsTr("基于 Qt Quick 的 YOLO 目标检测演示程序\n\n\n\n© 2026 作者：丁鑫")
             font.pixelSize: 14
             wrapMode: Text.Wrap
             width: 400

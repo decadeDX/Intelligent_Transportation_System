@@ -13,6 +13,10 @@ Item {
 
     property url selectedImageUrl: ""
 
+    ImageCarPersonDetectService {
+        id: detectService
+    }
+
 
     FileDialog {
         id: imageFileDialog
@@ -168,22 +172,21 @@ Item {
 
                         Label {
                             Layout.alignment: Qt.AlignHCenter
-                            text: ""
+                            text: detectService.errorMessage
                             font.pixelSize: 12
                             color: "#d9534f"
                             wrapMode: Text.WordWrap
                             horizontalAlignment: Text.AlignHCenter
                             Layout.maximumWidth: leftPanel.width - 40
-                            visible: true
+                            visible: detectService.errorMessage !== ""
                         }
 
                         Button {
                             id: detectButton
                             Layout.alignment: Qt.AlignHCenter
                             text: "开始检测"
-                            enabled: true
+                            enabled: !detectService.busy
                             onClicked: {
-                                resultImage.source = ""
                                 detectService.detect(
                                     root.selectedImageUrl,
                                     modelComboBox.currentText,
@@ -234,7 +237,7 @@ Item {
                                 id: resultImage
                                 anchors.fill: parent
                                 fillMode: Image.PreserveAspectFit
-                                source: ""
+                                source: detectService.resultImageUrl
                                 mipmap: true
                             }
 
@@ -243,27 +246,26 @@ Item {
                                 text: "正在检测，请稍候..."
                                 color: "#999999"
                                 font.pixelSize: 14
-                                visible: (resultImage.source === "" || resultImage.status === Image.Error)
-                                         && !detectService.busy
+                                visible: detectService.busy
                             }
 
                             BusyIndicator {
                                 anchors.centerIn: parent
-                                running: false
-                                visible: false
+                                running: detectService.busy
+                                visible: detectService.busy
                             }
                         }
 
                         Label {
                             Layout.alignment: Qt.AlignHCenter
                             Layout.fillWidth: true
-                            text: ""
+                            text: detectService.statusMessage
                             font.pixelSize: 13
                             font.bold: true
                             color: "#333333"
                             wrapMode: Text.WordWrap
                             horizontalAlignment: Text.AlignHCenter
-                            visible: false
+                            visible: detectService.statusMessage !== ""
                         }
                     }
                 }

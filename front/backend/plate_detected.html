@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>车牌实时检测帧测试</title>
+    <style>
+        body { font-family: sans-serif; margin: 16px; background: #f5f5f5; }
+        .panel { background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+        img { max-width: 100%; max-height: 70vh; display: block; background: #000; }
+        .stats { color: #333; line-height: 1.8; }
+        .hint { color: #666; font-size: 14px; }
+        button { margin-right: 8px; padding: 8px 16px; cursor: pointer; }
+        input { margin-right: 8px; }
+        .error { color: #c0392b; }
+        .result-list { margin-top: 8px; font-size: 14px; color: #444; }
+        .result-list li { margin: 4px 0; }
+    </style>
+</head>
+<body>
+<h2>车牌实时检测帧测试</h2>
+
+<div class="panel">
+    <div>
+        <input type="file" id="videoFile" accept="video/*">
+        <label>跳帧间隔 frame_interval：</label>
+        <input type="number" id="frameInterval" value="5" min="1" max="30" style="width: 60px;" title="frame_interval">
+        <button id="startBtn">开始 NDJSON 流式检测</button>
+        <button id="stopBtn" disabled>停止</button>
+    </div>
+    <p class="hint">
+        请通过 <a href="http://127.0.0.1:8000/plate_detected.html" target="_blank">http://127.0.0.1:8000/plate_detected.html</a> 打开本页（不要双击本地 html 文件）。<br>
+        方式一（推荐）：选择视频后点「开始」，直接消费 POST /plateVideoDetectedWithFrame 的 NDJSON 流。<br>
+        方式二：若已用 curl 启动任务，在 URL 加 <code>?task_id=你的session_id</code>，页面将轮询 /getPlateLatestFrame。<br>
+        视频帧 label 仅显示车牌号；任务结束后在下方展示汇总 plate_list（含归属地）。
+    </p>
+</div>
+
+<div class="panel">
+    <img id="videoFrame" alt="车牌检测结果帧">
+    <div class="stats" id="stats">等待开始...</div>
+    <ul class="result-list" id="plateList"></ul>
+    <div class="error" id="error"></div>
+</div>
+
+<script>
+    const API_BASE = window.location.origin.startsWith('http')
+        ? window.location.origin
+        : 'http://127.0.0.1:8000';
+    const imgEl = document.getElementById('videoFrame');
+    const statsEl = document.getElementById('stats');
+    const plateListEl = document.getElementById('plateList');
+    const errorEl = document.getElementById('error');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+
+    let abortController = null;
+    let pollTimer = null;
+    let frameCount = 0;
+    let lastFrameTime = performance.now();
+    let displayFps = 0;
+
+    function setError(msg) {
+        errorEl.textContent = msg || '';
+    }
+
+    function clearPlateList() {
+        plateListEl.innerHTML = '';
+    }
+
+    function renderPlateList(plateList) {
+        clearPlateList();
+        if (!plateList || !plateList.length) {
+            plateListEl.innerHTML = '<li>（无有效车牌汇总）</li>';
+            return;
+        }
+        plateList.forEach((item) => {
+            const li = document.createElement('li');
+            li.textContent = `${item.plateno} | ${item.platecolor || '-'} | ${item.city || '未知'}`;
+            plateListEl.appendChild(li);
+        });
+    }
+
+    function updateStats(extra = '') {
+        statsEl.textContent =
+            `已显示帧数: ${frameCount} | 页面刷新 FPS: ${displayFps.toFixed(1)}` +
+            (extra ? ` | ${extra}` : '');
+    }
+
+    function showBase64Frame(base64, meta = '') {
+        if (!base64) return;
+        imgEl.src = 'data:image/jpeg;base64,' + base64;
+        frameCount += 1;
+        const now = performance.now();
+        const dt = now - lastFrameTime;
+        if (dt > 0) displayFps = 1000 / dt;
+        lastFrameTime = now;
+        updateStats(meta);
+    }
+
+    function stopAll() {
+        if (abortController) {
+            abortController.abort();
+            abortController = null;
+        }
+        if (pollTimer) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+    }
+
+    async function startNdjsonStream() {
+        const fileInput = document.getElementById('videoFile');
+        if (!fileInput.files.length) {
+            setError('请先选择视频文件');
+            return;
+        }
+
+        stopAll();
+        setError('');
+        clearPlateList();
+        frameCount = 0;
+        displayFps = 0;
+        lastFrameTime = performance.now();
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('frame_interval', document.getElementById('frameInterval').value);
+
+        abortController = new AbortController();
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        updateStats('连接中...');
+
+        try {
+            const response = await fetch(`${API_BASE}/plateVideoDetectedWithFrame`, {
+                method: 'POST',
+                body: formData,
+                signal: abortController.signal,
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                let newlineIndex;
+                while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+                    const line = buffer.slice(0, newlineIndex).trim();
+                    buffer = buffer.slice(newlineIndex + 1);
+                    if (line) handleNdjsonLine(line);
+                }
+            }
+
+            if (buffer.trim()) handleNdjsonLine(buffer.trim());
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                setError('NDJSON 流异常: ' + err.message);
+            }
+        } finally {
+            stopAll();
+        }
+    }
+
+    function handleNdjsonLine(line) {
+        let payload;
+        try {
+            payload = JSON.parse(line);
+        } catch (e) {
+            return;
+        }
+
+        const event = payload.event;
+        const data = payload.data || {};
+
+        if (event === 'start') {
+            updateStats(
+                `任务 ${data.session_id} | 总帧 ${data.total_frames} | fps ${data.fps} | 跳帧 ${data.frame_interval}`
+            );
+            return;
+        }
+
+        if (event === 'frame') {
+            const base64 = data.frame_jpeg_base64;
+            const detectTag = data.detected ? '推理帧' : '复用帧';
+            showBase64Frame(
+                base64,
+                `后端帧 ${data.frame_index} | 当前帧车牌 ${data.plate_number} | ${detectTag}`
+            );
+            return;
+        }
+
+        if (event === 'done') {
+            renderPlateList(data.plate_list || []);
+            updateStats(
+                `完成 | 汇总车牌 ${data.plate_number ?? 0} | 帧内累计 ${data.frame_plate_total ?? '-'} | 输出 ${data.url || ''}`
+            );
+            return;
+        }
+
+        if (event === 'error') {
+            setError(payload.msg || '检测失败');
+        }
+    }
+
+    function startPollMode(taskId) {
+        stopAll();
+        setError('');
+        clearPlateList();
+        frameCount = 0;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        updateStats(`轮询 task_id=${taskId}`);
+
+        async function poll() {
+            try {
+                const frameRes = await fetch(
+                    `${API_BASE}/getPlateLatestFrame?task_id=${encodeURIComponent(taskId)}`
+                );
+                if (!frameRes.ok) {
+                    throw new Error(`getPlateLatestFrame HTTP ${frameRes.status}`);
+                }
+                const frameData = await frameRes.json();
+                if (frameData.frame) {
+                    showBase64Frame(frameData.frame, 'poll 模式');
+                }
+
+                const statusRes = await fetch(
+                    `${API_BASE}/plateVideoStatus?task_id=${encodeURIComponent(taskId)}`
+                );
+                if (statusRes.ok) {
+                    const statusData = await statusRes.json();
+                    if (statusData.status === 'done') {
+                        renderPlateList(statusData.result?.plate_list || []);
+                        updateStats(`完成 | 输出 ${statusData.output_path || ''}`);
+                        stopAll();
+                        return;
+                    }
+                    if (statusData.status === 'error') {
+                        setError(statusData.result?.msg || '任务失败');
+                        stopAll();
+                        return;
+                    }
+                }
+            } catch (err) {
+                setError('轮询失败: ' + err.message);
+                stopAll();
+                return;
+            }
+            pollTimer = setTimeout(poll, 33);
+        }
+
+        poll();
+    }
+
+    startBtn.addEventListener('click', startNdjsonStream);
+    stopBtn.addEventListener('click', stopAll);
+
+    const params = new URLSearchParams(window.location.search);
+    const taskIdFromUrl = params.get('task_id');
+    if (taskIdFromUrl) {
+        startPollMode(taskIdFromUrl);
+    }
+</script>
+</body>
+</html>

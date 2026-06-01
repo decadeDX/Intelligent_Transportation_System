@@ -1,0 +1,103 @@
+from shutil import copy
+import uuid
+from PIL import Image, ImageDraw, ImageFont
+import cv2
+import numpy as np
+import re
+import json
+import requests
+
+pattern_str = "([京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼]" \
+              "{1}(([A-HJ-Z]{1}[A-HJ-NP-Z0-9]{5})|([A-HJ-Z]{1}(([DF]{1}[A-HJ-NP-Z0-9]{1}[0-9]{4})|([0-9]{5}[DF]" \
+              "{1})))|([A-HJ-Z]{1}[A-D0-9]{1}[0-9]{3}警)))|([0-9]{6}使)|((([沪粤川云桂鄂陕蒙藏黑辽渝]{1}A)|鲁B|闽D|蒙E|蒙H)" \
+              "[0-9]{4}领)|(WJ[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼·•]{1}[0-9]{4}[TDSHBXJ0-9]{1})" \
+              "|([VKHBSLJNGCE]{1}[A-DJ-PR-TVY]{1}[0-9]{5})"
+
+
+# 校验车牌
+def is_chinese_plate(plateno):
+    if re.findall(pattern_str, plateno):
+        return True
+    else:
+        return False
+
+
+# 文件拷贝命令
+def file_copy(src, dest):
+    copy(src, dest)
+
+
+# 生成UUID的函数
+def generate_uuid():
+    return str(uuid.uuid4())
+
+
+# opencv实现视频里面写入中文字符串的函数
+def cv2AddChineseText(img, text, position, textColor, textSize):
+    if (isinstance(img, np.ndarray)):  # 判断是否OpenCV图片类型
+        img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    # 创建一个可以在给定图像上绘图的对象
+    draw = ImageDraw.Draw(img)
+    # 字体的格式
+    fontStyle = ImageFont.truetype(
+        "simsun.ttc", textSize, encoding="utf-8")  # simsun.ttc语言包放在程序同级目录下
+    # 绘制文本
+    draw.text(position, text, textColor, font=fontStyle)
+    # 转换回OpenCV格式
+    return cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
+
+
+# 把json字符串写入到json文件中。
+"""
+def writ2json(data, path):
+    with open(path + '/result.json', 'w', encoding='utf-8') as file:
+        # 将字符串写入文件
+        file.write(data)
+"""
+
+
+def writ2json(data, path):
+    # 确保路径存在斜杠结尾
+    if not path.endswith('/'):
+        path += '/'
+
+    # 检查输入数据是字符串还是Python对象
+    if isinstance(data, str):
+        # 如果是字符串，解析为Python对象
+        parsed_data = json.loads(data)
+    else:
+        # 如果是Python对象（如字典/列表），直接使用
+        parsed_data = data
+
+    # 将格式化后的JSON写入文件
+    with open(path + 'result.json', 'w', encoding='utf-8') as file:
+        json.dump(parsed_data, file, indent=4, ensure_ascii=False)
+
+
+# 读取json文件返回json字符串
+def read2json(path):
+    with open(path, 'r', encoding='utf-8') as file:
+        # 读取文件内容
+        data = file.read()
+        result_json = json.loads(data)
+    return result_json
+
+
+# 查询车牌归属地
+def query_chinese_plate(plateno):
+    url = "https://www.simoniu.com/commons/chinaplate/"
+    response = requests.get(url + plateno)
+    # print(response.text)
+    jsonObj = json.loads(response.text)
+    return jsonObj['data']
+
+
+def traffic_ratio_cal(current_num, num, ability=1000):
+    level = current_num / (num * ability)
+    result = "拥堵" if level > 1 else "畅通"
+    return result
+
+
+if __name__ == '__main__':
+    str = "陕AN1M77"
+    print(is_chinese_plate(str))  # False
