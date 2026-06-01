@@ -1,4 +1,4 @@
-# CMake 构建目录、缓存
+# CMake 构建目录 & 缓存
 build/
 Build/
 cmake-build-*/
@@ -7,7 +7,10 @@ cmake_install.cmake
 CMakeFiles/
 *.cmake
 
-# Qt 相关临时、编译文件
+# Qt 临时/编译文件
+**/.qtcreator/
+*.user
+*.user.*
 *.pro.user
 *.pro.user.*
 *.qrc.bak
@@ -16,7 +19,7 @@ moc_*.cpp
 ui_*.h
 qrc_*.cpp
 
-# 可执行程序、库、编译产物
+# 编译产物、二进制文件
 *.exe
 *.dll
 *.lib
@@ -26,14 +29,57 @@ qrc_*.cpp
 *.o
 *.obj
 
-# 日志、临时文件
+# 日志、临时、系统文件
 *.log
 *.tmp
 *.bak
 .DS_Store
 Thumbs.db
 
-# IDE 配置
+# IDE 配置目录
 .vscode/
 .idea/
 *.swp
+.claude/
+
+# Python 字节码缓存
+__pycache__/
+*.pyc
+
+# 图片文件
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.svg
+*.ico
+*.webp
+
+# 视频文件
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.flv
+*.webm
+
+# AI 模型文件
+*.pt
+*.pth
+*.onnx
+*.h5
+*.hdf5
+*.pb
+*.ckpt
+*.safetensors
+*.keras
+*.mlmodel
+*.tflite
+*.engine
+*.trt
+
+# 项目专属：上传素材、测试文件
+backend/upload/
+backend/test/
