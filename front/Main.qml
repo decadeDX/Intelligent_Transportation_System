@@ -11,8 +11,21 @@ ApplicationWindow {
     title: qsTr("基于YOLO的智慧交通系统")
     visibility: Window.Maximized
 
-    property string statusText: qsTr("推理服务已就绪")
+    // property string statusText: qsTr("推理服务已就绪")
 
+    BackendServerManager{
+        id: backendServerManager
+
+        onServerStartupFinished: function(success) {
+                if (success) {
+                    console.log("推理服务已就绪，可以发起检测请求")
+                } else {
+                    console.log("推理服务启动失败，请检查 backend 环境")
+                }
+            }
+    }
+
+    Component.onCompleted: backendServerManager.startServer();
 
     menuBar: MenuBar {
         Menu {
@@ -127,18 +140,25 @@ ApplicationWindow {
             spacing: 10
 
             Label {
-                text: root.statusText
+                text: ""
                 Layout.fillWidth: true
                 font.pixelSize: 13
                 verticalAlignment: Text.AlignVCenter
             }
 
-            Label {
-                text: ""
-                font.pixelSize: 13
-                verticalAlignment: Text.AlignVCenter
-                color: AppTheme.statusSuccessColor
+            // Label {
+            //     text: ""
+            //     font.pixelSize: 13
+            //     verticalAlignment: Text.AlignVCenter
+            //     color: AppTheme.statusSuccessColor
 
+            // }
+
+            Label {
+                text: backendServerManager.statusText
+                color: backendServerManager.serverReady ? AppTheme.statusSuccessColor
+                        : (backendServerManager.serverFailed ? AppTheme.statusErrorColor
+                                                            : AppTheme.statusTextColor)
             }
 
             Label {

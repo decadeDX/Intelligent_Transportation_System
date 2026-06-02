@@ -4,7 +4,7 @@ project(front VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 Network)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 Network Multimedia)
 
 qt_standard_project_setup(REQUIRES 6.10)
 
@@ -31,7 +31,12 @@ qt_add_qml_module(appfront
         qml/DriverLicenseDected.qml
     SOURCES
         service/ImageCarPersonDetectService.h service/ImageCarPersonDetectService.cpp
-        SOURCES service/VideoCarpersonDetectService.h service/VideoCarpersonDetectService.cpp
+        service/VideoCarpersonDetectService.h service/VideoCarpersonDetectService.cpp
+        service/BackendServerManager.h service/BackendServerManager.cpp
+        service/StreamFrameImageProvider.h service/StreamFrameImageProvider.cpp
+        service/ImagePlateDetectService.h service/ImagePlateDetectService.cpp
+        service/VideoPlateDetectService.h service/VideoPlateDetectService.cpp
+        service/CarSpeedDetectService.h service/CarSpeedDetectService.cpp
 
 )
 
@@ -50,6 +55,7 @@ target_link_libraries(appfront
     PRIVATE Qt6::Quick
     PRIVATE Qt6::QuickControls2
     PRIVATE Qt6::Network
+    PRIVATE Qt6::Multimedia
 )
 
 target_include_directories(appfront PRIVATE

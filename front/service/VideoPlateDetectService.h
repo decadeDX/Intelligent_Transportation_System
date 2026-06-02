@@ -1,27 +1,19 @@
-/**
- * @file VideoCarPersonDetectService.h
- * @brief 视频车辆/行人检测业务服务类（供 QML 调用）
- *
- * 支持两种模式：
- * - /yoloVideoDetected：整段视频检测完成后返回结果视频
- * - /yoloVideoDetectedWithFrame：NDJSON 流式逐帧返回检测结果
- */
-
-#ifndef VIDEOCARPERSONDETECTSERVICE_H
-#define VIDEOCARPERSONDETECTSERVICE_H
+#ifndef VIDEOPLATEDETECTSERVICE_H
+#define VIDEOPLATEDETECTSERVICE_H
 
 #include <QAtomicInt>
 #include <QImage>
-#include <QJsonObject>
 #include <QObject>
 #include <QUrl>
+#include <QVariantList>
 #include <qqmlintegration.h>
 
 class QNetworkAccessManager;
 class QNetworkReply;
 class StreamFrameImageProvider;
 
-class VideoCarPersonDetectService : public QObject
+/// 视频车牌检测服务：封装 /plateVideoDetected 与 /plateVideoDetectedWithFrame
+class VideoPlateDetectService : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
@@ -32,10 +24,11 @@ class VideoCarPersonDetectService : public QObject
     Q_PROPERTY(QString resultVideoUrl READ resultVideoUrl NOTIFY resultVideoUrlChanged)
     Q_PROPERTY(int detectionCount READ detectionCount NOTIFY detectionCountChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
+    Q_PROPERTY(QVariantList plateList READ plateList NOTIFY plateListChanged)
 
 public:
-    explicit VideoCarPersonDetectService(QObject *parent = nullptr);
-    ~VideoCarPersonDetectService() override;
+    explicit VideoPlateDetectService(QObject *parent = nullptr);
+    ~VideoPlateDetectService() override;
 
     bool busy() const;
     bool realtimeDetect() const;
@@ -43,14 +36,11 @@ public:
     QString resultVideoUrl() const;
     int detectionCount() const;
     QString statusMessage() const;
+    QVariantList plateList() const;
 
-    Q_INVOKABLE void detect(const QUrl &sourceVideoUrl,
-                            const QString &modelType,
-                            const QString &targetLabel,
-                            bool realtimeDetect = false);
-
+    /// 发起视频车牌检测，只需视频路径和是否实时模式
+    Q_INVOKABLE void detect(const QUrl &sourceVideoUrl, bool realtimeDetect = false);
     Q_INVOKABLE bool openResultVideoWithSystemPlayer();
-
     Q_INVOKABLE void cancelDetect();
 
     static void setFrameImageProvider(StreamFrameImageProvider *provider);
@@ -62,34 +52,26 @@ signals:
     void resultVideoUrlChanged();
     void detectionCountChanged();
     void statusMessageChanged();
-    /** @brief 流式模式下每收到一帧检测结果时发出，frameImageUrl 为本地 file:// 路径 */
+    void plateListChanged();
     void frameDetected(int frameIndex, const QString &frameImageUrl);
     void detectFinished(bool success);
 
 private:
-    struct UploadContext {
-        QString destPath;
-        QString className;
-        QString modelType;
-    };
-
     QString resolveBackendRoot() const;
-    QString mapTargetToClassName(const QString &targetLabel) const;
     QString toLocalFileUrl(const QString &relativePath) const;
-    bool prepareUpload(const QUrl &sourceVideoUrl,
-                       const QString &targetLabel,
-                       UploadContext *ctx);
+    bool prepareUpload(const QUrl &sourceVideoUrl, QString *destPath);
 
-    void setBusy(bool busy);
-    void setRealtimeDetect(bool realtime);
-    void setErrorMessage(const QString &message);
-    void setResultVideoUrl(const QString &url);
-    void setDetectionCount(int count);
-    void setStatusMessage(const QString &message);
+    void setBusy(bool v);
+    void setRealtimeDetect(bool v);
+    void setErrorMessage(const QString &v);
+    void setResultVideoUrl(const QString &v);
+    void setDetectionCount(int v);
+    void setStatusMessage(const QString &v);
+    void setPlateList(const QVariantList &v);
     void cancelActiveRequest();
-    void startBatchDetect(const UploadContext &ctx);
-    void startStreamDetect(const UploadContext &ctx);
-    void handleNetworkReply(QNetworkReply *reply);
+    void startBatchDetect(const QString &destPath);
+    void startStreamDetect(const QString &destPath);
+    void handleBatchReply(QNetworkReply *reply);
     void appendStreamData(const QByteArray &chunk);
     void handleStreamLine(const QByteArray &line);
     void finishDetectFailed(const QString &message);
@@ -110,10 +92,10 @@ private:
     QString m_resultVideoUrl;
     int m_detectionCount = 0;
     QString m_statusMessage;
-    QString m_lastTargetLabel;
+    QVariantList m_plateList;
     int m_streamTotalFrames = 0;
     int m_streamFps = 25;
     int m_statusUpdateCounter = 0;
 };
 
-#endif // VIDEOCARPERSONDETECTSERVICE_H
+#endif // VIDEOPLATEDETECTSERVICE_H

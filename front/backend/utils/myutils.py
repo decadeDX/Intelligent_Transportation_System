@@ -1,11 +1,28 @@
 from shutil import copy
 import uuid
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
 import re
 import json
 import requests
+
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def resolve_chinese_font_path() -> str:
+    """解析中文字体路径，优先 simsun，其次 platech，最后系统字体。"""
+    candidates = [
+        _BACKEND_DIR / "simsun.ttc",
+        _BACKEND_DIR / "fonts" / "platech.ttf",
+        Path(r"C:\Windows\Fonts\simsun.ttc"),
+        Path("simsun.ttc"),
+    ]
+    for path in candidates:
+        if path.exists():
+            return str(path)
+    return str(_BACKEND_DIR / "fonts" / "platech.ttf")
 
 pattern_str = "([京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼]" \
               "{1}(([A-HJ-Z]{1}[A-HJ-NP-Z0-9]{5})|([A-HJ-Z]{1}(([DF]{1}[A-HJ-NP-Z0-9]{1}[0-9]{4})|([0-9]{5}[DF]" \
@@ -33,17 +50,14 @@ def generate_uuid():
 
 
 # opencv实现视频里面写入中文字符串的函数
-def cv2AddChineseText(img, text, position, textColor, textSize):
-    if (isinstance(img, np.ndarray)):  # 判断是否OpenCV图片类型
+def cv2AddChineseText(img, text, position, textColor, textSize, font_path=None):
+    if isinstance(img, np.ndarray):
         img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    # 创建一个可以在给定图像上绘图的对象
     draw = ImageDraw.Draw(img)
-    # 字体的格式
     fontStyle = ImageFont.truetype(
-        "simsun.ttc", textSize, encoding="utf-8")  # simsun.ttc语言包放在程序同级目录下
-    # 绘制文本
+        font_path or resolve_chinese_font_path(), textSize, encoding="utf-8"
+    )
     draw.text(position, text, textColor, font=fontStyle)
-    # 转换回OpenCV格式
     return cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
 
 
@@ -83,13 +97,45 @@ def read2json(path):
     return result_json
 
 
+PLATE_CITY_API = "https://www.simoniu.com/commons/chinaplate/"
+
+
+def normalize_plateno(plateno: str) -> str:
+    """清洗识别结果中的空白、分隔符等，避免归属地查询请求失败。"""
+    if not plateno:
+        return plateno
+    p = plateno.strip()
+    p = p.replace("·", "").replace("•", "").replace(" ", "")
+    p = re.sub(r"[\r\n\t\0]", "", p)
+    return p
+
+
 # 查询车牌归属地
 def query_chinese_plate(plateno):
-    url = "https://www.simoniu.com/commons/chinaplate/"
-    response = requests.get(url + plateno)
-    # print(response.text)
-    jsonObj = json.loads(response.text)
-    return jsonObj['data']
+    from urllib.parse import quote
+
+    plateno = normalize_plateno(plateno)
+    if not plateno:
+        return "未知"
+
+    url = PLATE_CITY_API + quote(plateno, safe="")
+    last_err = None
+    for _ in range(2):
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            json_obj = json.loads(response.content.decode("utf-8"))
+            data = json_obj.get("data")
+            if isinstance(data, str):
+                return data.strip() or "未知"
+            if data is not None:
+                return str(data)
+            raise KeyError("missing data field")
+        except Exception as e:
+            last_err = e
+
+    print(f"query_chinese_plate failed: plateno={plateno!r}, err={last_err}")
+    return "未知"
 
 
 def traffic_ratio_cal(current_num, num, ability=1000):
