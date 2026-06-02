@@ -1,19 +1,19 @@
 # main.py
 
-import os
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from ultralytics import YOLO
-import numpy as np
 
 from api.speed.speed_detected_interface import register_speed_routes
+from api.speed.speed_detect_service import initialize_speed_detector
 from api.line.line_detected_interface import register_line_routes
 from api.park.park_detected_interface import register_park_routes
 from api.park.model_infer_service import initialize_vehicle_detector
 from api.sign.sign_detected_interface import register_sign_routes
+from api.sign.sign_detect_service import initialize_sign_detector
+from api.yolov8.yolo_detect_service import initialize_yolo_detectors
 
 # ===== 路径设置 =====
 BASE_DIR = Path(__file__).resolve().parent
@@ -35,11 +35,12 @@ RESULTS_DIR.mkdir(exist_ok=True)
 async def lifespan(app: FastAPI):
 
     print("正在加载项目所有模型...")
-    yolo_models = {}
+    yolo_model_paths = {}
     for model_type in MODEL_TYPES:
         model_path = WEIGHTS_DIR / f"{model_type}.onnx"
         print(f"正在加载 YOLO 目标检测模型: {model_type} ({model_path})")
-        yolo_models[model_type] = YOLO(model_path, task="detect")
+        yolo_model_paths[model_type] = model_path
+    initialize_yolo_detectors(model_paths=yolo_model_paths)
 
     from api.plate.onnx_infer import load_models
     from api.plate.plate_detected_interface import (
@@ -58,7 +59,7 @@ async def lifespan(app: FastAPI):
 
     speed_detect_path = WEIGHTS_DIR / "yolo11n.onnx"
     print(f"正在加载车速检测模型: {speed_detect_path}")
-    speed_model = YOLO(speed_detect_path, task="detect")
+    initialize_speed_detector(model_path=speed_detect_path)
 
     # 车位检测模型由服务层统一初始化
     park_detect_path = WEIGHTS_DIR / "yolo11n.onnx"
@@ -66,16 +67,16 @@ async def lifespan(app: FastAPI):
     initialize_vehicle_detector(model_path=park_detect_path)
     sign_detect_path = WEIGHTS_DIR / "signs_model.onnx"
     print(f"正在加载标识牌检测模型:{sign_detect_path}")
-    sign_model = YOLO(sign_detect_path, task="detect")
+    initialize_sign_detector(model_path=sign_detect_path)
 
     # 注册路由
     from api.yolov8.object_detected_interface import register_yolo_routes
     print("正在注册 YOLO 目标检测路由...")
-    register_yolo_routes(app, yolo_models)
+    register_yolo_routes(app)
     print("正在注册车牌检测路由...")
     register_plate_routes(app, detect_session, rec_session)
     print("正在注册车速检测路由...")
-    register_speed_routes(app, speed_model)
+    register_speed_routes(app)
 
     # 车道检测使用传统 CV，不需要模型
     print("正在注册车道检测路由...")
@@ -85,7 +86,7 @@ async def lifespan(app: FastAPI):
     print("正在注册车位检测路由...")
     register_park_routes(app)
     print("正在注册标识牌检测路由...")
-    register_sign_routes(app, sign_model)
+    register_sign_routes(app)
 
     print("所有模型与路由初始化完成，服务已就绪！")
     yield

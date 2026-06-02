@@ -24,7 +24,7 @@ qt_add_qml_module(appfront
         qml/ImagePlateDected.qml
         qml/VideoPlateDected.qml
         qml/CarSpeedDected.qml
-        qml/LaneDected.qml
+        qml/LineDected.qml
         qml/ParkingSpaceDected.qml
         qml/TrafficFlowDected.qml
         qml/TrafficSignDected.qml

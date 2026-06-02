@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交通标识检测测试</title>
+    <style>
+        body { font-family: sans-serif; margin: 16px; background: #f5f5f5; }
+        .panel { background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+        img { max-width: 100%; max-height: 70vh; display: block; background: #000; }
+        .stats { color: #333; line-height: 1.8; }
+        .hint { color: #666; font-size: 14px; }
+        button { margin-right: 8px; padding: 8px 16px; cursor: pointer; }
+        input { margin-right: 8px; }
+        .error { color: #c0392b; }
+        .result-list { margin-top: 8px; font-size: 14px; color: #444; }
+        .result-list li { margin: 4px 0; }
+        pre.json { background: #f0f2f5; padding: 12px; border-radius: 6px; overflow: auto; max-height: 240px; font-size: 12px; }
+    </style>
+</head>
+<body>
+<h2>交通标识检测测试（/signVideoDetectedWithFrame）</h2>
+
+<div class="panel">
+    <div>
+        <input type="file" id="videoFile" accept="video/*">
+        <label>跳帧 frame_interval：</label>
+        <input type="number" id="frameInterval" value="3" min="1" max="30" style="width: 50px;">
+        <button id="startBtn">开始 NDJSON 流式检测</button>
+        <button id="stopBtn" disabled>停止</button>
+    </div>
+    <p class="hint">
+        通过 <a href="http://127.0.0.1:8000/sign_detected.html">http://127.0.0.1:8000/sign_detected.html</a> 打开。<br>
+        基于 YOLO 检测交通信号灯、停止标志、消防栓等交通标识（COCO 类别 9-12）。
+    </p>
+</div>
+
+<div class="panel">
+    <img id="videoFrame" alt="交通标识检测结果帧">
+    <div class="stats" id="stats">等待开始...</div>
+    <ul class="result-list" id="signList"></ul>
+    <pre class="json" id="resultJson" hidden></pre>
+    <div class="error" id="error"></div>
+</div>
+
+<script>
+    const API_BASE = window.location.origin.startsWith('http')
+        ? window.location.origin : 'http://127.0.0.1:8000';
+    const imgEl = document.getElementById('videoFrame');
+    const statsEl = document.getElementById('stats');
+    const signListEl = document.getElementById('signList');
+    const resultJsonEl = document.getElementById('resultJson');
+    const errorEl = document.getElementById('error');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+
+    let abortController = null;
+    let frameCount = 0, lastFrameTime = performance.now(), displayFps = 0;
+
+    function setError(msg) { errorEl.textContent = msg || ''; }
+
+    function updateStats(extra = '') {
+        statsEl.textContent = `已显示帧数: ${frameCount} | 刷新 FPS: ${displayFps.toFixed(1)}` + (extra ? ` | ${extra}` : '');
+    }
+
+    function renderSignList(detections) {
+        signListEl.innerHTML = '';
+        if (!detections || !detections.length) {
+            signListEl.innerHTML = '<li>（当前帧无交通标识）</li>';
+            return;
+        }
+        detections.forEach(d => {
+            const li = document.createElement('li');
+            li.textContent = `${d.class_name} (COCO #${d.class_id}) | 置信度 ${d.confidence}`;
+            signListEl.appendChild(li);
+        });
+    }
+
+    function showBase64Frame(base64, meta = '') {
+        if (!base64) return;
+        imgEl.src = 'data:image/jpeg;base64,' + base64;
+        frameCount += 1;
+        const now = performance.now(), dt = now - lastFrameTime;
+        if (dt > 0) displayFps = 1000 / dt;
+        lastFrameTime = now;
+        updateStats(meta);
+    }
+
+    function stopAll() {
+        if (abortController) { abortController.abort(); abortController = null; }
+        startBtn.disabled = false; stopBtn.disabled = true;
+    }
+
+    async function startNdjsonStream() {
+        const fileInput = document.getElementById('videoFile');
+        if (!fileInput.files.length) { setError('请先选择视频文件'); return; }
+        stopAll(); setError(''); resultJsonEl.hidden = true; frameCount = 0;
+        displayFps = 0; lastFrameTime = performance.now();
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('frame_interval', document.getElementById('frameInterval').value);
+
+        abortController = new AbortController();
+        startBtn.disabled = true; stopBtn.disabled = false;
+        updateStats('连接中...');
+
+        try {
+            const response = await fetch(`${API_BASE}/signVideoDetectedWithFrame`, {
+                method: 'POST', body: formData, signal: abortController.signal,
+            });
+            if (!response.ok) { throw new Error(`HTTP ${response.status}`); }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder(); let buffer = '';
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                let idx;
+                while ((idx = buffer.indexOf('\n')) >= 0) {
+                    const line = buffer.slice(0, idx).trim();
+                    buffer = buffer.slice(idx + 1);
+                    if (line) handleLine(line);
+                }
+            }
+        } catch (err) {
+            if (err.name !== 'AbortError') setError('流异常: ' + err.message);
+        } finally { stopAll(); }
+    }
+
+    function handleLine(line) {
+        let p; try { p = JSON.parse(line); } catch (e) { return; }
+        const d = p.data || {};
+        if (p.event === 'start') updateStats(`任务 ${d.session_id} | 总帧 ${d.total_frames} | fps ${d.fps}`);
+        if (p.event === 'frame') {
+            renderSignList(d.detections || []);
+            showBase64Frame(d.frame_jpeg_base64, `帧 ${d.frame_index} | 标识数 ${d.sign_count}`);
+        }
+        if (p.event === 'done') {
+            updateStats(`完成 | 总检测数 ${d.total_signs_detected} | 标识类型 ${d.unique_sign_types}`);
+            renderSignList(Object.entries(d.sign_class_counts || {}).map(([k, v]) => ({ class_name: k + ' (共' + v + '次)', class_id: '-', confidence: '-' })));
+            resultJsonEl.hidden = false; resultJsonEl.textContent = JSON.stringify(p, null, 2);
+        }
+        if (p.event === 'error') setError(p.msg || '检测失败');
+    }
+
+    startBtn.addEventListener('click', startNdjsonStream);
+    stopBtn.addEventListener('click', stopAll);
+</script>
+</body>
+</html>

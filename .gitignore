@@ -85,3 +85,4 @@ __pycache__/
 /front/backend/test/
 /front/backend/Chinese_license_plate_detection_recognition-main/
 /front/backend/.venv/
+/front/backend/api/park/test/test.py

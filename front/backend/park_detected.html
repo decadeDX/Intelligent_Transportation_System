@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>车位检测接口测试</title>
+    <style>
+        :root {
+            --bg: #f4f6f8;
+            --panel: #ffffff;
+            --line: #d9dee7;
+            --text: #17202a;
+            --muted: #667085;
+            --primary: #1f6feb;
+            --danger: #c0392b;
+            --ok: #1f8a4c;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+        }
+        header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--line);
+            background: var(--panel);
+        }
+        h1 { margin: 0; font-size: 20px; }
+        main {
+            display: grid;
+            grid-template-columns: minmax(320px, 420px) minmax(420px, 1fr);
+            gap: 16px;
+            padding: 16px;
+        }
+        section {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 14px;
+        }
+        section + section { margin-top: 16px; }
+        h2 { margin: 0 0 12px; font-size: 16px; }
+        label {
+            display: block;
+            margin: 10px 0 6px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        input[type="file"], input[type="number"], input[type="text"] {
+            width: 100%;
+            min-height: 36px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+            padding: 7px 9px;
+        }
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        button {
+            min-height: 36px;
+            border: 1px solid var(--primary);
+            border-radius: 6px;
+            background: var(--primary);
+            color: #fff;
+            padding: 0 14px;
+            cursor: pointer;
+        }
+        button.secondary {
+            background: #fff;
+            color: var(--primary);
+        }
+        button:disabled {
+            opacity: .55;
+            cursor: not-allowed;
+        }
+        .preview-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        figure {
+            margin: 0;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+            background: #111827;
+            min-height: 220px;
+        }
+        figcaption {
+            background: #fff;
+            border-bottom: 1px solid var(--line);
+            padding: 8px 10px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+        img {
+            display: block;
+            width: 100%;
+            max-height: 520px;
+            object-fit: contain;
+            background: #111827;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(100px, 1fr));
+            gap: 8px;
+            margin: 12px 0;
+        }
+        .stat {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 10px;
+            background: #fbfcfe;
+        }
+        .stat b {
+            display: block;
+            font-size: 20px;
+            margin-top: 4px;
+        }
+        .status {
+            min-height: 24px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .error { color: var(--danger); }
+        .ok { color: var(--ok); }
+        pre {
+            margin: 0;
+            padding: 12px;
+            max-height: 320px;
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #0f172a;
+            color: #dbeafe;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+        th, td {
+            border-bottom: 1px solid var(--line);
+            padding: 7px 6px;
+            text-align: left;
+        }
+        th { color: var(--muted); font-weight: 600; }
+        @media (max-width: 980px) {
+            main { grid-template-columns: 1fr; }
+            .preview-grid { grid-template-columns: 1fr; }
+            .stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>车位检测接口测试</h1>
+</header>
+
+<main>
+    <div>
+        <section>
+            <h2>图片检测 /parkDetected</h2>
+            <label for="imageFile">图片文件</label>
+            <input type="file" id="imageFile" accept="image/*">
+            <label for="imageSpotsFile">车位 JSON（可选）</label>
+            <input type="file" id="imageSpotsFile" accept="application/json,.json">
+            <div class="actions">
+                <button id="imageBtn">发送图片检测</button>
+                <button class="secondary" id="clearImageBtn">清空图片结果</button>
+            </div>
+            <div class="status" id="imageStatus">等待图片检测。</div>
+        </section>
+
+        <section>
+            <h2>视频流 /parkVideoDetectedWithFrame</h2>
+            <label for="videoFile">视频文件</label>
+            <input type="file" id="videoFile" accept="video/*">
+            <label for="videoSpotsFile">车位 JSON（可选）</label>
+            <input type="file" id="videoSpotsFile" accept="application/json,.json">
+            <div class="row">
+                <div>
+                    <label for="frameInterval">frame_interval</label>
+                    <input type="number" id="frameInterval" value="5" min="1" max="60">
+                </div>
+                <div>
+                    <label for="taskId">task_id</label>
+                    <input type="text" id="taskId" placeholder="流开始后自动填充">
+                </div>
+            </div>
+            <div class="actions">
+                <button id="startBtn">开始流式检测</button>
+                <button class="secondary" id="stopBtn" disabled>停止</button>
+            </div>
+            <div class="status" id="videoStatus">等待视频检测。</div>
+        </section>
+
+        <section>
+            <h2>状态接口</h2>
+            <div class="actions">
+                <button id="statusBtn">查询 /parkVideoStatus</button>
+                <button class="secondary" id="latestBtn">查询 /getParkLatestFrame</button>
+            </div>
+            <div class="status" id="queryStatus">等待查询。</div>
+        </section>
+    </div>
+
+    <div>
+        <section>
+            <h2>检测画面</h2>
+            <div class="preview-grid">
+                <figure>
+                    <figcaption>原始图片预览</figcaption>
+                    <img id="sourcePreview" alt="">
+                </figure>
+                <figure>
+                    <figcaption>检测结果 / 视频帧</figcaption>
+                    <img id="resultPreview" alt="">
+                </figure>
+            </div>
+            <div class="stats">
+                <div class="stat">车辆数 <b id="vehicleCount">0</b></div>
+                <div class="stat">总车位 <b id="totalSpots">0</b></div>
+                <div class="stat">占用 <b id="occupiedSpots">0</b></div>
+                <div class="stat">空闲 <b id="freeSpots">0</b></div>
+            </div>
+            <div class="status" id="frameStatus">未收到检测结果。</div>
+            <table>
+                <thead>
+                <tr>
+                    <th>车位 ID</th>
+                    <th>名称</th>
+                    <th>坐标</th>
+                    <th>状态</th>
+                </tr>
+                </thead>
+                <tbody id="spotsBody">
+                <tr><td colspan="4">暂无车位数据</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>接口响应</h2>
+            <pre id="responseJson">{}</pre>
+        </section>
+
+        <section>
+            <h2>流事件日志</h2>
+            <pre id="eventLog"></pre>
+        </section>
+    </div>
+</main>
+
+<script>
+    const API_BASE = window.location.origin.startsWith('http')
+        ? window.location.origin
+        : 'http://127.0.0.1:8000';
+
+    const els = {
+        imageFile: document.getElementById('imageFile'),
+        imageSpotsFile: document.getElementById('imageSpotsFile'),
+        videoFile: document.getElementById('videoFile'),
+        videoSpotsFile: document.getElementById('videoSpotsFile'),
+        frameInterval: document.getElementById('frameInterval'),
+        taskId: document.getElementById('taskId'),
+        imageBtn: document.getElementById('imageBtn'),
+        clearImageBtn: document.getElementById('clearImageBtn'),
+        startBtn: document.getElementById('startBtn'),
+        stopBtn: document.getElementById('stopBtn'),
+        statusBtn: document.getElementById('statusBtn'),
+        latestBtn: document.getElementById('latestBtn'),
+        imageStatus: document.getElementById('imageStatus'),
+        videoStatus: document.getElementById('videoStatus'),
+        queryStatus: document.getElementById('queryStatus'),
+        frameStatus: document.getElementById('frameStatus'),
+        sourcePreview: document.getElementById('sourcePreview'),
+        resultPreview: document.getElementById('resultPreview'),
+        vehicleCount: document.getElementById('vehicleCount'),
+        totalSpots: document.getElementById('totalSpots'),
+        occupiedSpots: document.getElementById('occupiedSpots'),
+        freeSpots: document.getElementById('freeSpots'),
+        spotsBody: document.getElementById('spotsBody'),
+        responseJson: document.getElementById('responseJson'),
+        eventLog: document.getElementById('eventLog'),
+    };
+
+    let abortController = null;
+    let frameCount = 0;
+    let lastFrameAt = performance.now();
+
+    function setStatus(el, message, className = '') {
+        el.className = 'status' + (className ? ` ${className}` : '');
+        el.textContent = message;
+    }
+
+    function setJson(payload) {
+        els.responseJson.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function appendEvent(payload) {
+        const line = typeof payload === 'string' ? payload : JSON.stringify(payload);
+        els.eventLog.textContent = `${line}\n${els.eventLog.textContent}`.slice(0, 20000);
+    }
+
+    function appendOptionalFile(formData, fieldName, input) {
+        if (input.files && input.files.length > 0) {
+            formData.append(fieldName, input.files[0]);
+        }
+    }
+
+    function normalizeOutputUrl(url) {
+        if (!url) return '';
+        if (/^https?:\/\//i.test(url)) return url;
+        return `${API_BASE}/${url.replace(/^\/+/, '')}`;
+    }
+
+    function updateStats(data = {}) {
+        const total = Number(data.total_spots ?? data.max_total_spots ?? 0);
+        const occupied = Number(data.occupied_spots ?? data.max_occupied ?? 0);
+        els.vehicleCount.textContent = Number(data.vehicle_count ?? 0);
+        els.totalSpots.textContent = total;
+        els.occupiedSpots.textContent = occupied;
+        els.freeSpots.textContent = Number(data.free_spots ?? Math.max(total - occupied, 0));
+        renderSpots(data.spot_regions || []);
+    }
+
+    function renderSpots(spots) {
+        if (!spots.length) {
+            els.spotsBody.innerHTML = '<tr><td colspan="4">暂无车位数据</td></tr>';
+            return;
+        }
+        els.spotsBody.innerHTML = spots.slice(0, 80).map((spot, index) => {
+            const id = spot.spot_id || `grid_${index + 1}`;
+            const name = spot.spot_name || '-';
+            const coord = `${spot.x},${spot.y},${spot.x + spot.width},${spot.y + spot.height}`;
+            const state = spot.occupied ? '占用' : '空闲';
+            return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(name)}</td><td>${coord}</td><td>${state}</td></tr>`;
+        }).join('');
+    }
+
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
+    }
+
+    function showBase64Frame(base64, data = {}) {
+        if (!base64) return;
+        els.resultPreview.src = `data:image/jpeg;base64,${base64}`;
+        frameCount += 1;
+        const now = performance.now();
+        const fps = 1000 / Math.max(now - lastFrameAt, 1);
+        lastFrameAt = now;
+        const frameIndex = data.frame_index ?? '-';
+        setStatus(els.frameStatus, `已显示 ${frameCount} 帧，当前帧 ${frameIndex}，刷新 FPS ${fps.toFixed(1)}`);
+    }
+
+    async function testImageApi() {
+        if (!els.imageFile.files.length) {
+            setStatus(els.imageStatus, '请选择图片文件。', 'error');
+            return;
+        }
+        setStatus(els.imageStatus, '图片接口请求中...');
+        els.sourcePreview.src = URL.createObjectURL(els.imageFile.files[0]);
+
+        const formData = new FormData();
+        formData.append('file', els.imageFile.files[0]);
+        appendOptionalFile(formData, 'parking_spots_file', els.imageSpotsFile);
+
+        try {
+            const response = await fetch(`${API_BASE}/parkDetected`, {
+                method: 'POST',
+                body: formData,
+            });
+            const payload = await response.json();
+            setJson(payload);
+            appendEvent({ endpoint: '/parkDetected', payload });
+            if (payload.code !== 200) {
+                setStatus(els.imageStatus, payload.msg || `HTTP ${response.status}`, 'error');
+                return;
+            }
+            const data = payload.data || {};
+            updateStats(data);
+            setStatus(els.imageStatus, `图片接口成功：占用 ${data.occupied_spots}/${data.total_spots}`, 'ok');
+            if (data.url) {
+                els.resultPreview.onerror = () => {
+                    setStatus(els.frameStatus, '结果图片路径已返回，但当前服务未直接暴露 upload 目录。');
+                };
+                els.resultPreview.src = normalizeOutputUrl(data.url);
+            }
+        } catch (err) {
+            setStatus(els.imageStatus, `图片接口异常：${err.message}`, 'error');
+        }
+    }
+
+    function stopStream() {
+        if (abortController) {
+            abortController.abort();
+            abortController = null;
+        }
+        els.startBtn.disabled = false;
+        els.stopBtn.disabled = true;
+    }
+
+    async function startVideoStream() {
+        if (!els.videoFile.files.length) {
+            setStatus(els.videoStatus, '请选择视频文件。', 'error');
+            return;
+        }
+        stopStream();
+        frameCount = 0;
+        lastFrameAt = performance.now();
+        els.eventLog.textContent = '';
+        setJson({});
+        setStatus(els.videoStatus, '视频流连接中...');
+
+        const formData = new FormData();
+        formData.append('file', els.videoFile.files[0]);
+        formData.append('frame_interval', els.frameInterval.value || '5');
+        appendOptionalFile(formData, 'parking_spots_file', els.videoSpotsFile);
+
+        abortController = new AbortController();
+        els.startBtn.disabled = true;
+        els.stopBtn.disabled = false;
+
+        try {
+            const response = await fetch(`${API_BASE}/parkVideoDetectedWithFrame`, {
+                method: 'POST',
+                body: formData,
+                signal: abortController.signal,
+            });
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('ndjson')) {
+                const payload = await response.json();
+                setJson(payload);
+                appendEvent({ endpoint: '/parkVideoDetectedWithFrame', payload });
+                setStatus(els.videoStatus, payload.msg || `HTTP ${response.status}`, payload.code === 200 ? 'ok' : 'error');
+                return;
+            }
+            await readNdjson(response);
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                setStatus(els.videoStatus, `视频流异常：${err.message}`, 'error');
+            }
+        } finally {
+            stopStream();
+        }
+    }
+
+    async function readNdjson(response) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let idx;
+            while ((idx = buffer.indexOf('\n')) >= 0) {
+                const line = buffer.slice(0, idx).trim();
+                buffer = buffer.slice(idx + 1);
+                if (line) handleNdjsonLine(line);
+            }
+        }
+    }
+
+    function handleNdjsonLine(line) {
+        let payload;
+        try {
+            payload = JSON.parse(line);
+        } catch {
+            appendEvent(line);
+            return;
+        }
+        appendEvent(payload);
+        const data = payload.data || {};
+        if (payload.event === 'start') {
+            els.taskId.value = data.session_id || '';
+            setStatus(els.videoStatus, `任务已开始：${data.session_id}，总帧 ${data.total_frames}，FPS ${data.fps}`, 'ok');
+        }
+        if (payload.event === 'frame') {
+            updateStats(data);
+            showBase64Frame(data.frame_jpeg_base64, data);
+        }
+        if (payload.event === 'done') {
+            setJson(payload);
+            updateStats(data);
+            setStatus(els.videoStatus, `任务完成：最多占用 ${data.max_occupied}/${data.max_total_spots}`, 'ok');
+        }
+        if (payload.event === 'error') {
+            setJson(payload);
+            setStatus(els.videoStatus, payload.msg || '视频流任务失败。', 'error');
+        }
+    }
+
+    async function queryStatus() {
+        const taskId = els.taskId.value.trim();
+        if (!taskId) {
+            setStatus(els.queryStatus, '请先填写 task_id。', 'error');
+            return;
+        }
+        try {
+            const response = await fetch(`${API_BASE}/parkVideoStatus?task_id=${encodeURIComponent(taskId)}`);
+            const payload = await response.json();
+            setJson(payload);
+            appendEvent({ endpoint: '/parkVideoStatus', payload });
+            if (payload.result) updateStats(payload.result);
+            setStatus(els.queryStatus, `状态：${payload.status || '-'}`, payload.status === 'error' ? 'error' : 'ok');
+        } catch (err) {
+            setStatus(els.queryStatus, `状态查询异常：${err.message}`, 'error');
+        }
+    }
+
+    async function queryLatestFrame() {
+        const taskId = els.taskId.value.trim();
+        if (!taskId) {
+            setStatus(els.queryStatus, '请先填写 task_id。', 'error');
+            return;
+        }
+        try {
+            const response = await fetch(`${API_BASE}/getParkLatestFrame?task_id=${encodeURIComponent(taskId)}`);
+            const payload = await response.json();
+            setJson(payload);
+            appendEvent({ endpoint: '/getParkLatestFrame', payload: { ...payload, frame: payload.frame ? '[base64]' : null } });
+            if (payload.frame) {
+                showBase64Frame(payload.frame);
+                setStatus(els.queryStatus, '最新帧获取成功。', 'ok');
+            } else {
+                setStatus(els.queryStatus, payload.msg || '暂无最新帧。');
+            }
+        } catch (err) {
+            setStatus(els.queryStatus, `最新帧查询异常：${err.message}`, 'error');
+        }
+    }
+
+    function clearImageResult() {
+        els.sourcePreview.removeAttribute('src');
+        els.resultPreview.removeAttribute('src');
+        setJson({});
+        updateStats({});
+        renderSpots([]);
+        setStatus(els.imageStatus, '图片结果已清空。');
+        setStatus(els.frameStatus, '未收到检测结果。');
+    }
+
+    els.imageBtn.addEventListener('click', testImageApi);
+    els.clearImageBtn.addEventListener('click', clearImageResult);
+    els.startBtn.addEventListener('click', startVideoStream);
+    els.stopBtn.addEventListener('click', stopStream);
+    els.statusBtn.addEventListener('click', queryStatus);
+    els.latestBtn.addEventListener('click', queryLatestFrame);
+</script>
+</body>
+</html>

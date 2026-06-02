@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>车速实时检测测试</title>
+    <style>
+        body { font-family: sans-serif; margin: 16px; background: #f5f5f5; }
+        .panel { background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+        img { max-width: 100%; max-height: 70vh; display: block; background: #000; }
+        .stats { color: #333; line-height: 1.8; }
+        .hint { color: #666; font-size: 14px; }
+        button { margin-right: 8px; padding: 8px 16px; cursor: pointer; }
+        input { margin-right: 8px; }
+        .error { color: #c0392b; }
+        .result-list { margin-top: 8px; font-size: 14px; color: #444; }
+        .result-list li { margin: 4px 0; }
+        pre.json { background: #f0f2f5; padding: 12px; border-radius: 6px; overflow: auto; max-height: 240px; font-size: 12px; }
+    </style>
+</head>
+<body>
+<h2>车速实时检测测试（/speedVideoDetected）</h2>
+
+<div class="panel">
+    <div>
+        <input type="file" id="videoFile" accept="video/*">
+        <label>跳帧 frame_interval：</label>
+        <input type="number" id="frameInterval" value="1" min="1" max="30" style="width: 50px;" title="测速建议 1">
+        <label>米/像素：</label>
+        <input type="number" id="metersPerPixel" value="0.1" min="0.001" step="0.001" style="width: 70px;" title="meters_per_pixel，在测速线处标定">
+        <label>或 实际距离(m)/像素：</label>
+        <input type="number" id="refDistanceM" value="0" min="0" step="0.1" style="width: 60px;">
+        <span>/</span>
+        <input type="number" id="refPixels" value="0" min="0" step="1" style="width: 60px;">
+        <button id="startBtn">开始 NDJSON 流式检测</button>
+        <button id="stopBtn" disabled>停止</button>
+    </div>
+    <p class="hint">
+        请通过 <a href="http://127.0.0.1:8000/speed_detected.html" target="_blank">http://127.0.0.1:8000/speed_detected.html</a> 打开本页（不要双击本地 html 文件）。<br>
+        选择视频后点「开始」，消费 POST <code>/speedVideoDetected</code> 的 NDJSON 流。测速请保持 <code>frame_interval=1</code>。<br>
+        仅统计车辆；测速带内用接地点 x/y 二维回归求速（横向车流不再只算垂直位移）。<br>
+        默认 <code>frame_interval=1</code>、<code>米/像素=0.1</code>；标定请在<strong>蓝线高度</strong>量车道宽（如 3.5m÷35px=0.1）。<br>
+        标定示例：车道宽约 3.5m、在画面中约 70 像素 → 填 3.5 / 70，或直接把米/像素设为 0.05。<br>
+        任务结束后展示速度汇总，完整 API 响应保存在 <code>upload/detected/{uuid}/result.json</code>。
+    </p>
+</div>
+
+<div class="panel">
+    <img id="videoFrame" alt="车速检测结果帧">
+    <div class="stats" id="stats">等待开始...</div>
+    <ul class="result-list" id="speedList"></ul>
+    <pre class="json" id="resultJson" hidden></pre>
+    <div class="error" id="error"></div>
+</div>
+
+<script>
+    const API_BASE = window.location.origin.startsWith('http')
+        ? window.location.origin
+        : 'http://127.0.0.1:8000';
+    const imgEl = document.getElementById('videoFrame');
+    const statsEl = document.getElementById('stats');
+    const speedListEl = document.getElementById('speedList');
+    const resultJsonEl = document.getElementById('resultJson');
+    const errorEl = document.getElementById('error');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+
+    let abortController = null;
+    let frameCount = 0;
+    let lastFrameTime = performance.now();
+    let displayFps = 0;
+    let lastDonePayload = null;
+
+    function setError(msg) {
+        errorEl.textContent = msg || '';
+    }
+
+    function clearSpeedList() {
+        speedListEl.innerHTML = '';
+    }
+
+    function renderSpeedList(speedList) {
+        clearSpeedList();
+        if (!speedList || !speedList.length) {
+            speedListEl.innerHTML = '<li>（暂无已估算速度的目标）</li>';
+            return;
+        }
+        speedList.forEach((item) => {
+            const li = document.createElement('li');
+            const tag = item.reliable === false ? ' [低可信]' : '';
+            const samples = item.sample_count != null ? ` n=${item.sample_count}` : '';
+            li.textContent = `ID ${item.track_id} | ${item.class_name || '-'} | ${item.speed_kmh} km/h${samples}${tag}`;
+            if (item.reliable === false) li.style.color = '#888';
+            speedListEl.appendChild(li);
+        });
+    }
+
+    function updateStats(extra = '') {
+        statsEl.textContent =
+            `已显示帧数: ${frameCount} | 页面刷新 FPS: ${displayFps.toFixed(1)}` +
+            (extra ? ` | ${extra}` : '');
+    }
+
+    function showBase64Frame(base64, meta = '') {
+        if (!base64) return;
+        imgEl.src = 'data:image/jpeg;base64,' + base64;
+        frameCount += 1;
+        const now = performance.now();
+        const dt = now - lastFrameTime;
+        if (dt > 0) displayFps = 1000 / dt;
+        lastFrameTime = now;
+        updateStats(meta);
+    }
+
+    function stopAll() {
+        if (abortController) {
+            abortController.abort();
+            abortController = null;
+        }
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+    }
+
+    async function startNdjsonStream() {
+        const fileInput = document.getElementById('videoFile');
+        if (!fileInput.files.length) {
+            setError('请先选择视频文件');
+            return;
+        }
+
+        stopAll();
+        setError('');
+        clearSpeedList();
+        resultJsonEl.hidden = true;
+        resultJsonEl.textContent = '';
+        lastDonePayload = null;
+        frameCount = 0;
+        displayFps = 0;
+        lastFrameTime = performance.now();
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('frame_interval', document.getElementById('frameInterval').value);
+        formData.append('meters_per_pixel', document.getElementById('metersPerPixel').value);
+        formData.append('reference_distance_m', document.getElementById('refDistanceM').value);
+        formData.append('reference_pixels', document.getElementById('refPixels').value);
+
+        abortController = new AbortController();
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        updateStats('连接中...');
+
+        try {
+            const response = await fetch(`${API_BASE}/speedVideoDetected`, {
+                method: 'POST',
+                body: formData,
+                signal: abortController.signal,
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`HTTP ${response.status} ${errText}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                let newlineIndex;
+                while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+                    const line = buffer.slice(0, newlineIndex).trim();
+                    buffer = buffer.slice(newlineIndex + 1);
+                    if (line) handleNdjsonLine(line);
+                }
+            }
+
+            if (buffer.trim()) handleNdjsonLine(buffer.trim());
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                setError('NDJSON 流异常: ' + err.message);
+            }
+        } finally {
+            stopAll();
+        }
+    }
+
+    function handleNdjsonLine(line) {
+        let payload;
+        try {
+            payload = JSON.parse(line);
+        } catch (e) {
+            return;
+        }
+
+        const event = payload.event;
+        const data = payload.data || {};
+
+        if (event === 'start') {
+            updateStats(
+                `任务 ${data.session_id} | 总帧 ${data.total_frames} | fps ${data.fps} | 跳帧 ${data.frame_interval}`
+            );
+            return;
+        }
+
+        if (event === 'frame') {
+            const base64 = data.frame_jpeg_base64;
+            const samples = data.speed_samples || [];
+            const speedHint = samples.length
+                ? samples.map(s => `#${s.track_id}:${s.speed_kmh}`).join(', ')
+                : '无速度';
+            const detectTag = data.detected ? '推理帧' : '跳过帧';
+            showBase64Frame(
+                base64,
+                `后端帧 ${data.frame_index} | 车辆 ${data.vehicle_count} | ${detectTag} | ${speedHint}`
+            );
+            return;
+        }
+
+        if (event === 'done') {
+            lastDonePayload = payload;
+            renderSpeedList(data.speed_list || []);
+            updateStats(
+                `完成 | 车辆 ${data.vehicle_count ?? 0}（可信 ${data.reliable_vehicle_count ?? '-'}）| 最高(可信) ${data.max_speed_kmh ?? '-'} km/h | 输出 ${data.url || ''} | JSON ${data.result_json || ''}`
+            );
+            resultJsonEl.hidden = false;
+            resultJsonEl.textContent = JSON.stringify(payload, null, 2);
+            return;
+        }
+
+        if (event === 'error') {
+            setError(payload.msg || '检测失败');
+        }
+    }
+
+    startBtn.addEventListener('click', startNdjsonStream);
+    stopBtn.addEventListener('click', stopAll);
+</script>
+</body>
+</html>

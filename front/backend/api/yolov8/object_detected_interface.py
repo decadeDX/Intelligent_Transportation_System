@@ -13,8 +13,19 @@ import cv2
 from fastapi import File, Query, UploadFile, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 
-MODEL_TYPES = ["yolov8n", "yolov8s", "yolo11n", "yolo11s"]
-CLASS_ALIASES = {"全部": "all"}
+from api.yolov8.yolo_detect_service import (
+    MODEL_TYPES,
+    annotate_plot_kwargs,
+    get_available_model_types,
+    get_model_names,
+    normalize_class_name,
+    plot_yolo_frame,
+    predict_frame,
+    predict_video_frame,
+    resolve_target_id,
+    run_image_detection,
+)
+
 FRAME_DETECT_INTERVAL_DEFAULT = 5
 STREAM_JPEG_QUALITY = 50
 
@@ -24,53 +35,11 @@ latest_frame_meta = {}  # task_id -> {frame_index, numbers, detected}
 processing_status = {}  # task_id -> "processing" | "done" | "error"
 yolo_stream_results = {}  # task_id -> done 事件数据
 frame_lock = threading.Lock()
-model_inference_lock = threading.Lock()
 executor = ThreadPoolExecutor(max_workers=2)
-
-
-def _normalize_class_name(class_name: str) -> tuple[str, bool]:
-    normalized = CLASS_ALIASES.get(class_name.strip(), class_name.strip())
-    return normalized, normalized == "all"
 
 
 def _ndjson_line(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False) + "\n"
-
-
-def _annotate_plot_kwargs(image_shape: tuple) -> dict:
-    """
-    生成 YOLO 标注参数。
-    Ultralytics 默认走 cv2 绘制时 font_size 无效，且默认字号/线宽偏大偏粗。
-    改用 PIL + 按图像尺寸比例计算字号，约为默认的一半，常规字体（非粗体）。
-    """
-    height, width = image_shape[:2]
-    base = (width + height) / 2
-    return {
-        "pil": True,
-        "font_size": max(round(base * 0.017), 16),
-        "line_width": max(round(base * 0.0015), 2),
-    }
-
-
-def _predict_and_cache(model, frame, detect_all: bool, target_id: Optional[int]):
-    """执行 YOLO 推理，返回 result 与当前帧目标数量。"""
-    predict_kwargs = {"source": frame, "verbose": False, "conf": 0.25}
-    if not detect_all:
-        predict_kwargs["classes"] = [target_id]
-    with model_inference_lock:
-        result = model.predict(**predict_kwargs)[0]
-    count = len(result.boxes) if result.boxes is not None else 0
-    return result, count
-
-
-def _plot_yolo_frame(frame, plot_kwargs: dict, result, cached_result=None):
-    """
-    使用与 /yoloVideoDetected 相同的 result.plot 绘制。
-    跳帧时传入 img=frame，复用缓存检测结果，避免手动 BGR/RGB 转换导致偏色。
-    """
-    if cached_result is not None:
-        return cached_result.plot(**plot_kwargs, img=frame)
-    return result.plot(**plot_kwargs)
 
 
 def _encode_frame_jpeg_base64(frame) -> str:
@@ -80,40 +49,6 @@ def _encode_frame_jpeg_base64(frame) -> str:
     if not ok:
         return ""
     return base64.b64encode(buf).decode("utf-8")
-
-
-def _run_image_detection(model, file_path: Path, class_name: str, detect_all: bool, model_type: str):
-    """在线程池中执行图片检测，避免阻塞事件循环，并通过锁串行访问模型。"""
-    with model_inference_lock:
-        results = model.predict(source=str(file_path), save=False, show=False, verbose=False)
-    result = results[0]
-
-    count = 0
-    if detect_all:
-        if result.boxes is not None and len(result.boxes) > 0:
-            count = len(result.boxes)
-    else:
-        target_id = next(k for k, v in model.names.items() if v == class_name)
-        if result.boxes is not None and len(result.boxes) > 0:
-            cls_array = result.boxes.cls.cpu().numpy()
-            mask = cls_array == target_id
-            count = int(mask.sum())
-            result.boxes = result.boxes[mask]
-        else:
-            result.boxes = None
-
-    detected_dir = Path("upload/detected") / str(uuid.uuid4())
-    detected_dir.mkdir(parents=True, exist_ok=True)
-    output_path = detected_dir / f"yolo_{file_path.name}"
-    plot_kwargs = _annotate_plot_kwargs(result.orig_img.shape)
-    result.save(filename=str(output_path), **plot_kwargs)
-
-    return {
-        "numbers": count,
-        "class_name": class_name,
-        "model_type": model_type,
-        "url": str(output_path).replace("\\", "/"),
-    }
 
 
 def _read_video_metadata(video_path: Path) -> tuple[int, int, int, int]:
@@ -133,7 +68,6 @@ def process_yolo_video_stream_task(
     input_path: str,
     output_path: str,
     output_url: str,
-    model,
     model_type: str,
     class_name: str,
     detect_all: bool,
@@ -164,7 +98,7 @@ def process_yolo_video_stream_task(
         frame_index = 0
         total_count = 0
         cached_result = None
-        plot_kwargs = _annotate_plot_kwargs((height, width, 3))
+        plot_kwargs = annotate_plot_kwargs((height, width, 3))
 
         while True:
             ret, frame = cap.read()
@@ -176,13 +110,13 @@ def process_yolo_video_stream_task(
             frame_numbers = 0
 
             if run_detect:
-                cached_result, frame_numbers = _predict_and_cache(
-                    model, frame, detect_all, target_id
+                cached_result, frame_numbers = predict_frame(
+                    model_type, frame, detect_all, target_id
                 )
                 total_count += frame_numbers
-                annotated = _plot_yolo_frame(frame, plot_kwargs, cached_result)
+                annotated = plot_yolo_frame(frame, plot_kwargs, cached_result)
             elif cached_result is not None:
-                annotated = _plot_yolo_frame(frame, plot_kwargs, cached_result, cached_result)
+                annotated = plot_yolo_frame(frame, plot_kwargs, cached_result, cached_result)
             else:
                 annotated = frame
             out.write(annotated)
@@ -300,7 +234,7 @@ async def _yolo_mjpeg_generator(task_id: str) -> AsyncGenerator[bytes, None]:
         await asyncio.sleep(0.01)
 
 
-def register_yolo_routes(app, models):
+def register_yolo_routes(app):
     @app.post("/yoloDetected")
     async def yolo_detected(
         file: UploadFile = File(...),
@@ -308,14 +242,12 @@ def register_yolo_routes(app, models):
         model_type: str = Form(...),
     ):
         try:
-            if model_type not in models:
+            if model_type not in get_available_model_types():
                 return JSONResponse({
                     "code": 400,
-                    "msg": f"Model type '{model_type}' not supported. Available: {MODEL_TYPES}",
+                    "msg": f"Model type '{model_type}' not supported. Available: {get_available_model_types()}",
                     "data": None
                 })
-
-            model = models[model_type]
 
             upload_dir = Path("upload/source")
             upload_dir.mkdir(parents=True, exist_ok=True)
@@ -323,18 +255,19 @@ def register_yolo_routes(app, models):
             with open(file_path, "wb") as f:
                 f.write(await file.read())
 
-            class_name, detect_all = _normalize_class_name(class_name)
-            if not detect_all and class_name not in model.names.values():
+            class_name, detect_all = normalize_class_name(class_name)
+            names = get_model_names(model_type)
+            if not detect_all and class_name not in names.values():
                 return JSONResponse({
                     "code": 400,
-                    "msg": f"Class '{class_name}' not supported. Available: {list(model.names.values())}",
+                    "msg": f"Class '{class_name}' not supported. Available: {list(names.values())}",
                     "data": None
                 })
 
             loop = asyncio.get_running_loop()
             data = await loop.run_in_executor(
                 executor,
-                partial(_run_image_detection, model, file_path, class_name, detect_all, model_type),
+                partial(run_image_detection, file_path, class_name, detect_all, model_type),
             )
 
             return JSONResponse({
@@ -355,26 +288,23 @@ def register_yolo_routes(app, models):
         model_type: str = Form(...),
     ):
         try:
-            if model_type not in models:
+            if model_type not in get_available_model_types():
                 return JSONResponse({
                     "code": 400,
-                    "msg": f"Model type '{model_type}' not supported. Available: {MODEL_TYPES}",
+                    "msg": f"Model type '{model_type}' not supported. Available: {get_available_model_types()}",
                     "data": None
                 })
-
-            model = models[model_type]
 
             # --- 1. 类别校验 ---
-            class_name, detect_all = _normalize_class_name(class_name)
-            if not detect_all and class_name not in model.names.values():
+            class_name, detect_all = normalize_class_name(class_name)
+            names = get_model_names(model_type)
+            if not detect_all and class_name not in names.values():
                 return JSONResponse({
                     "code": 400,
-                    "msg": f"Class '{class_name}' not supported. Available: {list(model.names.values())}",
+                    "msg": f"Class '{class_name}' not supported. Available: {list(names.values())}",
                     "data": None
                 })
-            target_id = None
-            if not detect_all:
-                target_id = next(k for k, v in model.names.items() if v == class_name)
+            target_id = resolve_target_id(model_type, class_name, detect_all)
 
             # --- 2. 保存上传视频 ---
             upload_dir = Path("upload/source")
@@ -406,28 +336,16 @@ def register_yolo_routes(app, models):
                 raise RuntimeError("无法创建输出视频文件，请检查 OpenCV 编解码器支持")
 
             total_count = 0
-            plot_kwargs = _annotate_plot_kwargs((height, width, 3))
-
             # --- 5. 逐帧处理 ---
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
 
-                # YOLO 推理
-                predict_kwargs = {"source": frame, "verbose": False, "conf": 0.25}
-                if not detect_all:
-                    predict_kwargs["classes"] = [target_id]
-                with model_inference_lock:
-                    results = model.predict(**predict_kwargs)
-                result = results[0]
-
-                # 统计当前帧目标数
-                if result.boxes is not None:
-                    total_count += len(result.boxes)
-
-                # 将带标注的帧写入输出视频
-                annotated_frame = result.plot(**plot_kwargs)
+                _, frame_count, annotated_frame = predict_video_frame(
+                    model_type, frame, detect_all, target_id
+                )
+                total_count += frame_count
                 out.write(annotated_frame)
 
             # --- 6. 释放资源 ---
@@ -475,25 +393,23 @@ def register_yolo_routes(app, models):
         - 标注样式与 /yoloVideoDetected 一致（result.plot + Annotator）
         - JPEG 质量 50，仅在帧变化时推送，避免阻塞与冗余传输
         """
-        if model_type not in models:
+        if model_type not in get_available_model_types():
             return JSONResponse({
                 "code": 400,
-                "msg": f"Model type '{model_type}' not supported. Available: {MODEL_TYPES}",
+                "msg": f"Model type '{model_type}' not supported. Available: {get_available_model_types()}",
                 "data": None,
             })
 
-        class_name, detect_all = _normalize_class_name(class_name)
-        model = models[model_type]
-        if not detect_all and class_name not in model.names.values():
+        class_name, detect_all = normalize_class_name(class_name)
+        names = get_model_names(model_type)
+        if not detect_all and class_name not in names.values():
             return JSONResponse({
                 "code": 400,
-                "msg": f"Class '{class_name}' not supported. Available: {list(model.names.values())}",
+                "msg": f"Class '{class_name}' not supported. Available: {list(names.values())}",
                 "data": None,
             })
 
-        target_id = None
-        if not detect_all:
-            target_id = next(k for k, v in model.names.items() if v == class_name)
+        target_id = resolve_target_id(model_type, class_name, detect_all)
 
         interval = max(1, int(frame_interval))
         video_bytes = await file.read()
@@ -522,7 +438,6 @@ def register_yolo_routes(app, models):
             str(video_path.resolve()),
             str(output_video_path.resolve()),
             output_url,
-            model,
             model_type,
             class_name,
             detect_all,

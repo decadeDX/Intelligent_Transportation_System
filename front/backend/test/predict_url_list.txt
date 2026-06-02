@@ -1,5 +1,22 @@
 #yolo图片目标检测接口测试
-curl -X POST "http://127.0.0.1:8000/yoloDetected" -F "file=@imgs/hanzhong_car_02.jpg"  -F "class_name=car"
+curl.exe -X POST "http://127.0.0.1:8000/yoloDetected" -F "file=@imgs/hanzhong_car_02.jpg" -F "class_name=car" -F "model_type=yolov8n"
 
 #yolo视频目标检测接口测试
-curl -X POST "http://127.0.0.1:8000/yoloVideoDetected" -F "file=@videos/street001.mp4;type=video/mp4" -F "class_name=car"
+curl -X POST "http://127.0.0.1:8000/yoloVideoDetected" -F "file=@videos/street001.mp4;type=video/mp4" -F "class_name=car" -F "model_type=yolov8n"
+
+#yolo视频逐帧流式检测（NDJSON，默认每5帧推理一次；-N 实时打印每一行）
+curl -N -X POST "http://127.0.0.1:8000/yoloVideoDetectedWithFrame" -F "file=@videos/street001.mp4;type=video/mp4" -F "class_name=car" -F "model_type=yolov8n" -F "frame_interval=5"
+#yolo视频逐帧流式检测,网页测试
+yolov8_detected.html
+
+#车牌图片检测接口测试
+curl -X POST "http://127.0.0.1:8000/plateDetected" -F "file=@imgs/hanzhong_car_02.jpg"
+
+#车牌视频检测接口测试
+curl -X POST "http://127.0.0.1:8000/plateVideoDetected" -F "file=@videos/car_plate_video001.mp4;type=video/mp4"
+
+#车牌视频逐帧流式检测（NDJSON，默认每5帧推理一次；-N 实时打印每一行）
+curl -N -X POST "http://127.0.0.1:8000/plateVideoDetectedWithFrame" -F "file=@videos/car_plate_video001.mp4;type=video/mp4" -F "frame_interval=5"
+#车牌视频逐帧流式检测，网页测试
+plate_detected.html
+

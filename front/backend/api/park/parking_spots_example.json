@@ -1,0 +1,126 @@
+{
+  "parking_lot_info": {
+    "lot_id": "outdoor_lot_01",
+    "lot_name": "室外停车场",
+    "image_width": 1920,
+    "image_height": 1080,
+    "coordinate_format": "quadrilateral",
+    "source_video": "videos/parking1.mp4",
+    "note": "coordinates 为四点坐标，顺序为左上、右上、右下、左下；已按 parking1.mp4 首帧车位线重新贴合"
+  },
+  "parking_spots": [
+    {
+      "spot_id": "A01",
+      "spot_name": "前排-01",
+      "coordinates": [[0, 802], [84, 791], [41, 908], [0, 918]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A02",
+      "spot_name": "前排-02",
+      "coordinates": [[84, 791], [176, 787], [144, 904], [41, 908]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A03",
+      "spot_name": "前排-03",
+      "coordinates": [[176, 787], [286, 781], [269, 903], [144, 904]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A04",
+      "spot_name": "前排-04",
+      "coordinates": [[286, 781], [397, 774], [402, 897], [269, 903]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A05",
+      "spot_name": "前排-05",
+      "coordinates": [[397, 774], [506, 766], [521, 886], [402, 897]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A06",
+      "spot_name": "前排-06",
+      "coordinates": [[506, 766], [621, 757], [651, 869], [521, 886]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A07",
+      "spot_name": "前排-07",
+      "coordinates": [[621, 757], [735, 748], [781, 857], [651, 869]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A08",
+      "spot_name": "前排-08",
+      "coordinates": [[735, 748], [845, 735], [906, 842], [781, 857]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A09",
+      "spot_name": "前排-09",
+      "coordinates": [[845, 735], [943, 720], [1022, 832], [906, 842]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A10",
+      "spot_name": "前排-10",
+      "coordinates": [[943, 720], [1050, 706], [1145, 810], [1022, 828]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A11",
+      "spot_name": "前排-11",
+      "coordinates": [[1050, 706], [1141, 692], [1246, 792], [1145, 812]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A12",
+      "spot_name": "前排-12",
+      "coordinates": [[1141, 692], [1231, 678], [1330, 777], [1246, 792]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+    {
+      "spot_id": "A13",
+      "spot_name": "前排-13",
+      "coordinates": [[1231, 678], [1320, 670], [1430, 760], [1330, 777]],
+      "attributes": { "type": "standard", "status": "normal" }
+    },
+
+    {
+      "_ignore_this_B_zone": "B区车位已注释，保留数据不绘制",
+      "B01": {
+        "spot_id": "B01",
+        "spot_name": "右侧排-01",
+        "coordinates": [[1530, 630], [1590, 626], [1705, 690], [1620, 700]],
+        "attributes": { "type": "standard", "status": "normal" }
+      },
+      "B02": {
+        "spot_id": "B02",
+        "spot_name": "右侧排-02",
+        "coordinates": [[1590, 626], [1635, 619], [1745, 680], [1705, 690]],
+        "attributes": { "type": "standard", "status": "normal" }
+      },
+      "B03": {
+        "spot_id": "B03",
+        "spot_name": "右侧排-03",
+        "coordinates": [[1635, 619], [1680, 614], [1780, 670], [1745, 680]],
+        "attributes": { "type": "standard", "status": "normal" }
+      },
+      "B04": {
+        "spot_id": "B04",
+        "spot_name": "右侧排-04",
+        "coordinates": [[1680, 614], [1725, 610], [1820, 660], [1780, 670]],
+        "attributes": { "type": "standard", "status": "normal" }
+      },
+      "B05": {
+        "spot_id": "B05",
+        "spot_name": "右侧排-05",
+        "coordinates": [[1725, 610], [1765, 606], [1860, 650], [1820, 660]],
+        "attributes": { "type": "standard", "status": "normal" }
+      }
+    }
+
+  ]
+}
