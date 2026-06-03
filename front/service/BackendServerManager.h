@@ -32,6 +32,8 @@ public:
 
     /** @brief 启动后端推理服务器（若已在运行则直接标记成功） */
     Q_INVOKABLE void startServer();
+    /** @brief 清空 backend/upload/source 与 backend/upload/detected 下的文件 */
+    Q_INVOKABLE bool clearTemporaryFiles();
 
 signals:
     void statusTextChanged();

@@ -17,6 +17,8 @@ from api.sign.sign_detect_service import initialize_sign_detector
 from api.traffic.traffic_detected import initialize_traffic_detector
 from api.traffic.traffic_detected_interface import register_traffic_routes
 from api.yolov8.yolo_detect_service import initialize_yolo_detectors
+from api.card.license_detected import initialize_license_ocr
+from api.card.license_detected_interface import register_license_routes
 
 # ===== 路径设置 =====
 BASE_DIR = Path(__file__).resolve().parent
@@ -81,6 +83,9 @@ async def lifespan(app: FastAPI):
     print(f"正在加载标识牌检测模型:{sign_detect_path}")
     initialize_sign_detector(model_path=sign_detect_path)
 
+    print(f"正在加载驾驶证 OCR 模型: {WEIGHTS_DIR}")
+    initialize_license_ocr(models_dir=WEIGHTS_DIR)
+
     # 注册路由
     from api.yolov8.object_detected_interface import register_yolo_routes
     print("正在注册 YOLO 目标检测路由...")
@@ -103,6 +108,9 @@ async def lifespan(app: FastAPI):
 
     print("正在注册标识牌检测路由...")
     register_sign_routes(app)
+
+    print("正在注册驾驶证 OCR 路由...")
+    register_license_routes(app)
 
     print("所有模型与路由初始化完成，服务已就绪！")
     yield

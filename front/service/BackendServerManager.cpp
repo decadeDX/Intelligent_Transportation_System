@@ -7,12 +7,14 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <functional>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
+#include <QStringList>
 #include <QTimer>
 #include <QUrl>
 
@@ -200,6 +202,48 @@ void BackendServerManager::startServer()
         launchBackendProcess(backendRoot, pythonExe);
         m_pollTimer->start();
     });
+}
+
+bool BackendServerManager::clearTemporaryFiles()
+{
+    const QString backendRoot = resolveBackendRoot();
+    const QStringList relativeDirs = {
+        QStringLiteral("upload/source"),
+        QStringLiteral("upload/detected"),
+    };
+
+    for (const QString &relativeDir : relativeDirs) {
+        const QString dirPath = QDir(backendRoot).filePath(relativeDir);
+        QDir dir(dirPath);
+        if (!dir.exists()) {
+            if (!QDir().mkpath(dirPath))
+                return false;
+            continue;
+        }
+
+        const QFileInfoList entries = dir.entryInfoList(QDir::NoDotAndDotDot
+                                                        | QDir::Files
+                                                        | QDir::Dirs
+                                                        | QDir::Hidden
+                                                        | QDir::System);
+        for (const QFileInfo &entry : entries) {
+            bool removed = false;
+            if (entry.isDir()) {
+                removed = QDir(entry.absoluteFilePath()).removeRecursively();
+            } else {
+                QFile file(entry.absoluteFilePath());
+                if (!(file.permissions() & QFileDevice::WriteUser)) {
+                    file.setPermissions(file.permissions() | QFileDevice::WriteUser);
+                }
+                removed = file.remove();
+            }
+
+            if (!removed)
+                return false;
+        }
+    }
+
+    return true;
 }
 
 void BackendServerManager::launchBackendProcess(const QString &backendRoot,
