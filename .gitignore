@@ -86,3 +86,7 @@ __pycache__/
 /front/backend/Chinese_license_plate_detection_recognition-main/
 /front/backend/.venv/
 /front/backend/api/park/test/test.py
+/front/backend/models/PP-OCRv5_server_det/
+/front/backend/models/PP-OCRv5_server_rec_onnx/
+/front/backend/models/PP-OCRv5_server_rec/
+/front/backend/models/PP-OCRv5_server_det_onnx/

@@ -1,5 +1,5 @@
-# line_detected_interface.py
-"""车道检测 API：/lineVideoDetected（NDJSON 逐帧实时流式）。"""
+# traffic_detected_interface.py
+"""车流量检测 API：/trafficVideoDetected（NDJSON 逐帧实时流式）。"""
 
 from __future__ import annotations
 
@@ -10,23 +10,24 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import AsyncGenerator, Dict
+from typing import AsyncGenerator, Dict, Set
 
 import cv2
+from deep_sort_realtime.deepsort_tracker import DeepSort
 from fastapi import File, Form, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from utils.myutils import writ2json
 
-from .line_detect_service import OUTPUT_HEIGHT, OUTPUT_WIDTH, process_frame
+from .traffic_detected import compute_traffic_summary, process_frame
 
-FRAME_DETECT_INTERVAL_DEFAULT = 1
+FRAME_DETECT_INTERVAL_DEFAULT = 3
 STREAM_JPEG_QUALITY = 50
 
 latest_frames: Dict[str, str] = {}
 latest_frame_meta: Dict[str, dict] = {}
 processing_status: Dict[str, str] = {}
-line_stream_results: Dict[str, dict] = {}
+traffic_stream_results: Dict[str, dict] = {}
 frame_lock = threading.Lock()
 executor = ThreadPoolExecutor(max_workers=2)
 
@@ -39,7 +40,7 @@ def _result_json_url(result_dir: Path) -> str:
     return str(result_dir / "result.json").replace("\\", "/")
 
 
-def _save_line_api_response(result_dir: Path, response_body: dict) -> str:
+def _save_traffic_api_response(result_dir: Path, response_body: dict) -> str:
     result_dir.mkdir(parents=True, exist_ok=True)
     writ2json(response_body, f"{result_dir}/")
     return _result_json_url(result_dir)
@@ -54,7 +55,7 @@ def _encode_frame_jpeg_base64(frame) -> str:
     return base64.b64encode(buf).decode("utf-8")
 
 
-def _read_video_metadata(video_path: Path) -> tuple[int, int, int, int]:
+def _read_video_metadata(video_path: Path) -> tuple[int, int, int, int, float]:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise ValueError("无法打开上传的视频文件")
@@ -62,19 +63,22 @@ def _read_video_metadata(video_path: Path) -> tuple[int, int, int, int]:
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration_sec = total_frames / fps if fps > 0 else 0.0
     cap.release()
-    return fps, width, height, total_frames
+    return fps, width, height, total_frames, duration_sec
 
 
-def process_line_video_stream_task(
+def process_traffic_video_stream_task(
     task_id: str,
     input_path: str,
     output_path: str,
     output_url: str,
     result_dir: Path,
     frame_interval: int,
+    num_lanes: int,
+    duration_sec: float,
 ):
-    """后台线程：逐帧车道检测 + 车辆叠加，更新 latest_frames。"""
+    """后台线程：DeepSort 追踪统计车流量，更新 latest_frames。"""
     cap = None
     out = None
 
@@ -84,23 +88,21 @@ def process_line_video_stream_task(
             raise ValueError(f"无法打开视频: {input_path}")
 
         fps = max(1, int(cap.get(cv2.CAP_PROP_FPS)) or 25)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(
-            output_path,
-            fourcc,
-            fps,
-            (OUTPUT_WIDTH, OUTPUT_HEIGHT),
-        )
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         if not out.isOpened():
             raise RuntimeError("无法创建输出视频文件，请检查 OpenCV 编解码器支持")
 
+        tracker = DeepSort(max_age=5)
+        counter_set: Set[int] = set()
+        current_tracks: list = []
         processing_status[task_id] = "processing"
 
         frame_count = 0
         frame_index = 0
-        vehicle_total = 0
-        frames_with_lane = 0
-        frames_with_vehicle = 0
+        max_unique_count = 0
 
         while True:
             ret, frame = cap.read()
@@ -111,27 +113,26 @@ def process_line_video_stream_task(
             run_detect = frame_count == 1 or frame_count % frame_interval == 0
 
             if run_detect:
-                processed_frame, frame_meta = process_frame(frame)
-                vehicle_count = frame_meta["vehicle_count"]
-                lane_detected = frame_meta["lane_detected"]
+                processed_frame, frame_meta, current_tracks = process_frame(
+                    frame,
+                    tracker,
+                    counter_set,
+                    current_tracks,
+                    run_detect=True,
+                )
             else:
-                processed_frame = cv2.resize(frame, (OUTPUT_WIDTH, OUTPUT_HEIGHT))
-                vehicle_count = 0
-                lane_detected = False
-                frame_meta = {
-                    "lane_detected": False,
-                    "vehicle_count": 0,
-                    "vehicles": [],
-                    "detected": False,
-                }
+                processed_frame, frame_meta, current_tracks = process_frame(
+                    frame,
+                    tracker,
+                    counter_set,
+                    current_tracks,
+                    run_detect=False,
+                )
+
+            unique_count = frame_meta["unique_vehicle_count"]
+            max_unique_count = max(max_unique_count, unique_count)
 
             out.write(processed_frame)
-
-            if lane_detected:
-                frames_with_lane += 1
-            if vehicle_count > 0:
-                frames_with_vehicle += 1
-                vehicle_total += vehicle_count
 
             jpg_as_text = _encode_frame_jpeg_base64(processed_frame)
             if jpg_as_text:
@@ -139,9 +140,8 @@ def process_line_video_stream_task(
                     latest_frames[task_id] = jpg_as_text
                     latest_frame_meta[task_id] = {
                         "frame_index": frame_index,
-                        "lane_detected": lane_detected,
-                        "vehicle_count": vehicle_count,
-                        "vehicles": frame_meta.get("vehicles", []),
+                        "unique_vehicle_count": unique_count,
+                        "active_tracks": frame_meta["active_tracks"],
                         "detected": run_detect,
                     }
 
@@ -150,34 +150,43 @@ def process_line_video_stream_task(
         if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
             raise FileNotFoundError("输出视频未生成或为空")
 
+        summary = compute_traffic_summary(
+            len(counter_set),
+            duration_sec,
+            num_lanes,
+        )
+
         result_dir_str = str(result_dir).replace("\\", "/")
         data = {
             "session_id": task_id,
             "processed_frames": frame_index,
             "frame_interval": frame_interval,
             "fps": fps,
-            "width": OUTPUT_WIDTH,
-            "height": OUTPUT_HEIGHT,
-            "frames_with_lane": frames_with_lane,
-            "frames_with_vehicle": frames_with_vehicle,
-            "vehicle_count_total": vehicle_total,
+            "width": width,
+            "height": height,
+            "num_lanes": max(1, int(num_lanes)),
+            "unique_vehicle_count": summary["unique_vehicle_count"],
+            "max_unique_vehicle_count": max_unique_count,
+            "duration_sec": summary["duration_sec"],
+            "hourly_traffic_ratio": summary["hourly_traffic_ratio"],
+            "road_condition": summary["road_condition"],
             "url": output_url,
             "result_dir": result_dir_str,
         }
 
         response_body = {
             "code": 200,
-            "msg": "Line video detected success",
+            "msg": "Traffic video detected success",
             "data": data,
         }
-        data["result_json"] = _save_line_api_response(result_dir, response_body)
-        line_stream_results[task_id] = data
+        data["result_json"] = _save_traffic_api_response(result_dir, response_body)
+        traffic_stream_results[task_id] = data
         processing_status[task_id] = "done"
 
     except Exception as e:
-        print(f"Line Video Stream Task Error: {e}")
+        print(f"Traffic Video Stream Task Error: {e}")
         processing_status[task_id] = "error"
-        line_stream_results[task_id] = {"msg": str(e)}
+        traffic_stream_results[task_id] = {"msg": str(e)}
     finally:
         if cap is not None:
             cap.release()
@@ -185,14 +194,14 @@ def process_line_video_stream_task(
             out.release()
 
 
-async def _line_ndjson_generator(
+async def _traffic_ndjson_generator(
     task_id: str, start_payload: dict
 ) -> AsyncGenerator[str, None]:
     """轮询 latest_frames，仅在帧变化时推送 NDJSON 事件。"""
     yield _ndjson_line({
         "event": "start",
         "code": 200,
-        "msg": "Line stream started",
+        "msg": "Traffic stream started",
         "data": start_payload,
     })
 
@@ -211,9 +220,8 @@ async def _line_ndjson_generator(
                 "msg": "Frame processed",
                 "data": {
                     "frame_index": frame_meta.get("frame_index", 0),
-                    "lane_detected": frame_meta.get("lane_detected", False),
-                    "vehicle_count": frame_meta.get("vehicle_count", 0),
-                    "vehicles": frame_meta.get("vehicles", []),
+                    "unique_vehicle_count": frame_meta.get("unique_vehicle_count", 0),
+                    "active_tracks": frame_meta.get("active_tracks", 0),
                     "detected": frame_meta.get("detected", False),
                     "frame_jpeg_base64": frame_data,
                 },
@@ -221,21 +229,21 @@ async def _line_ndjson_generator(
             last_sent_frame = frame_data
 
         if status == "done":
-            result = line_stream_results.get(task_id, {})
+            result = traffic_stream_results.get(task_id, {})
             yield _ndjson_line({
                 "event": "done",
                 "code": 200,
-                "msg": "Line video stream detected success",
+                "msg": "Traffic video stream detected success",
                 "data": result,
             })
             break
 
         if status == "error":
-            result = line_stream_results.get(task_id, {})
+            result = traffic_stream_results.get(task_id, {})
             yield _ndjson_line({
                 "event": "error",
                 "code": 500,
-                "msg": result.get("msg", "Line video stream task failed"),
+                "msg": result.get("msg", "Traffic video stream task failed"),
                 "data": None,
             })
             break
@@ -243,22 +251,27 @@ async def _line_ndjson_generator(
         await asyncio.sleep(0.01)
 
 
-def register_line_routes(app):
-    """注册车道检测路由（仅 /lineVideoDetected）。"""
-    @app.post("/lineVideoDetected")
-    async def line_video_detected(
+def register_traffic_routes(app):
+    """注册车流量检测路由（仅 /trafficVideoDetected）。"""
+    @app.post("/trafficVideoDetected")
+    async def traffic_video_detected(
         file: UploadFile = File(...),
+        num_lanes: int = Form(1, description="车道数量"),
         frame_interval: int = Form(FRAME_DETECT_INTERVAL_DEFAULT),
     ):
         """
-        视频车道检测（NDJSON 逐帧实时流）。
+        视频车流量检测（NDJSON 逐帧实时流）。
 
-        逐帧进行车道线检测与车辆检测叠加，输出标注视频；
+        使用 YOLO + DeepSort 追踪统计唯一车辆数，估算小时流量与道路状况；
         完整响应写入 upload/detected/{uuid}/result.json。
         """
         interval = max(1, int(frame_interval))
+        lanes = max(1, int(num_lanes))
         video_bytes = await file.read()
         filename = Path(file.filename or "upload.mp4").name
+
+        if not video_bytes:
+            return JSONResponse({"code": 400, "msg": "上传视频为空", "data": None})
 
         upload_dir = Path("upload/source")
         upload_dir.mkdir(parents=True, exist_ok=True)
@@ -266,14 +279,16 @@ def register_line_routes(app):
         video_path.write_bytes(video_bytes)
 
         try:
-            fps, width, height, total_frames = _read_video_metadata(video_path)
+            fps, width, height, total_frames, duration_sec = _read_video_metadata(
+                video_path
+            )
         except ValueError as e:
             return JSONResponse({"code": 400, "msg": str(e), "data": None})
 
         task_id = str(uuid.uuid4())
         detected_dir = Path("upload/detected") / task_id
         detected_dir.mkdir(parents=True, exist_ok=True)
-        output_video_path = detected_dir / f"lane_{Path(filename).stem}.mp4"
+        output_video_path = detected_dir / f"traffic_{Path(filename).stem}.mp4"
         output_url = str(output_video_path).replace("\\", "/")
 
         processing_status[task_id] = "processing"
@@ -282,24 +297,26 @@ def register_line_routes(app):
             "fps": fps,
             "source_width": width,
             "source_height": height,
-            "output_width": OUTPUT_WIDTH,
-            "output_height": OUTPUT_HEIGHT,
             "total_frames": total_frames,
+            "duration_sec": round(duration_sec, 3),
             "frame_interval": interval,
+            "num_lanes": lanes,
         }
 
         executor.submit(
-            process_line_video_stream_task,
+            process_traffic_video_stream_task,
             task_id,
             str(video_path.resolve()),
             str(output_video_path.resolve()),
             output_url,
             detected_dir,
             interval,
+            lanes,
+            duration_sec,
         )
 
         return StreamingResponse(
-            _line_ndjson_generator(task_id, start_payload),
+            _traffic_ndjson_generator(task_id, start_payload),
             media_type="application/x-ndjson",
             headers={
                 "Cache-Control": "no-cache",

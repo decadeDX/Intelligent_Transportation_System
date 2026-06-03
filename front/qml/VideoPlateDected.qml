@@ -462,6 +462,7 @@ Item {
 
                         // 系统播放器按钮
                         Button {
+                            id: openwithSystemPlayerButton
                             anchors.horizontalCenter: parent.horizontalCenter
                             width: 160; height: 30
                             text: qsTr("使用系统播放器播放")
@@ -470,12 +471,12 @@ Item {
 
                             background: Rectangle {
                                 implicitWidth: 160; implicitHeight: 30; radius: 4
-                                color: openWithSystemPlayerButton.down ? AppTheme.detectButtonPressed
-                                      : (openWithSystemPlayerButton.hovered ? AppTheme.detectButtonHover : AppTheme.detectButtonNormal)
-                                opacity: openWithSystemPlayerButton.enabled ? 1.0 : 0.6
+                                color: openwithSystemPlayerButton.down ? AppTheme.detectButtonPressed
+                                      : (openwithSystemPlayerButton.hovered ? AppTheme.detectButtonHover : AppTheme.detectButtonNormal)
+                                opacity: openwithSystemPlayerButton.enabled ? 1.0 : 0.6
                             }
                             contentItem: Text {
-                                text: openWithSystemPlayerButton.text; color: "#ffffff"
+                                text: openwithSystemPlayerButton.text; color: "#ffffff"
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter; font.pixelSize: 13
                             }

@@ -9,10 +9,13 @@ from fastapi.responses import FileResponse
 from api.speed.speed_detected_interface import register_speed_routes
 from api.speed.speed_detect_service import initialize_speed_detector
 from api.line.line_detected_interface import register_line_routes
+from api.line.line_detect_service import initialize_line_detector
 from api.park.park_detected_interface import register_park_routes
 from api.park.model_infer_service import initialize_vehicle_detector
 from api.sign.sign_detected_interface import register_sign_routes
 from api.sign.sign_detect_service import initialize_sign_detector
+from api.traffic.traffic_detected import initialize_traffic_detector
+from api.traffic.traffic_detected_interface import register_traffic_routes
 from api.yolov8.yolo_detect_service import initialize_yolo_detectors
 
 # ===== 路径设置 =====
@@ -61,10 +64,19 @@ async def lifespan(app: FastAPI):
     print(f"正在加载车速检测模型: {speed_detect_path}")
     initialize_speed_detector(model_path=speed_detect_path)
 
+    traffic_detect_path = WEIGHTS_DIR / "yolo11n.onnx"
+    print(f"正在加载车流量检测模型: {traffic_detect_path}")
+    initialize_traffic_detector(model_path=traffic_detect_path)
+    
+    lane_detect_path = WEIGHTS_DIR / "yolov8s.onnx"
+    print(f"正在加载车道检测模型: {lane_detect_path}")
+    initialize_line_detector(model_path=lane_detect_path)
+
     # 车位检测模型由服务层统一初始化
     park_detect_path = WEIGHTS_DIR / "yolo11n.onnx"
     print(f"正在加载车位检测模型: {park_detect_path}")
     initialize_vehicle_detector(model_path=park_detect_path)
+
     sign_detect_path = WEIGHTS_DIR / "signs_model.onnx"
     print(f"正在加载标识牌检测模型:{sign_detect_path}")
     initialize_sign_detector(model_path=sign_detect_path)
@@ -73,18 +85,22 @@ async def lifespan(app: FastAPI):
     from api.yolov8.object_detected_interface import register_yolo_routes
     print("正在注册 YOLO 目标检测路由...")
     register_yolo_routes(app)
+
     print("正在注册车牌检测路由...")
     register_plate_routes(app, detect_session, rec_session)
+
     print("正在注册车速检测路由...")
     register_speed_routes(app)
 
-    # 车道检测使用传统 CV，不需要模型
+    print("正在注册车流量检测路由...")
+    register_traffic_routes(app)
+
     print("正在注册车道检测路由...")
     register_line_routes(app)
 
-
     print("正在注册车位检测路由...")
     register_park_routes(app)
+
     print("正在注册标识牌检测路由...")
     register_sign_routes(app)
 
