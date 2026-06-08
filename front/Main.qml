@@ -25,6 +25,50 @@ ApplicationWindow {
             }
     }
 
+    GradioWebLauncher {
+            id: gradioWebLauncher
+            onInferenceServerRequired: gradioInferenceRequiredDialog.open()
+            onLaunchFailed: function(message) {
+                gradioLaunchFailedDialog.messageText = message
+                gradioLaunchFailedDialog.open()
+            }
+        }
+
+        // UploadTempCleanupService {
+        //     id: uploadTempCleanup
+        // }
+
+        function resetAllDetectionPages() {
+            imageCarPersonPage.resetForTempCleanup()
+            videoCarPersonPage.resetForTempCleanup()
+            imagePlatePage.resetForTempCleanup()
+            videoPlatePage.resetForTempCleanup()
+            carSpeedPage.resetForTempCleanup()
+            lanePage.resetForTempCleanup()
+            parkingSpacePage.resetForTempCleanup()
+            trafficFlowPage.resetForTempCleanup()
+            trafficSignPage.resetForTempCleanup()
+            driverLicensePage.resetForTempCleanup()
+            // uploadTempCleanup.releaseStreamFrameCache()
+        }
+
+        // function beginClearTempFiles() {
+        //     resetAllDetectionPages()
+        //     tempCleanupTimer.start()
+        // }
+
+        // Timer {
+        //     id: tempCleanupTimer
+        //     interval: 350
+        //     repeat: false
+        //     onTriggered: {
+        //         if (uploadTempCleanup.clearUploadTempFiles())
+        //             clearTempSuccessDialog.open()
+        //         else
+        //             clearTempFailedDialog.open()
+        //     }
+        // }
+
     Component.onCompleted: backendServerManager.startServer();
 
     menuBar: MenuBar {
@@ -34,6 +78,17 @@ ApplicationWindow {
                 text: qsTr("打开")
                 shortcut: StandardKey.Open
                 onTriggered: console.log("打开文件")
+            }
+            Action {
+                text: qsTr("启动 Gradio Web 版")
+                enabled: !gradioWebLauncher.busy && !backendServerManager.serverBusy
+                onTriggered: {
+                    if (!backendServerManager.serverReady) {
+                        gradioInferenceRequiredDialog.open()
+                        return
+                    }
+                    gradioWebLauncher.startWebUi()
+                }
             }
             MenuSeparator {}
             Action {
@@ -51,6 +106,11 @@ ApplicationWindow {
             Action {
                 text: qsTr("刷新界面")
                 onTriggered: refreshConfirmDialog.open()
+            }
+            Action {
+                text: qsTr("重启推理服务器")
+                enabled: !backendServerManager.serverBusy
+                onTriggered: backendServerManager.restartServer()
             }
         }
         Menu {
@@ -156,7 +216,7 @@ ApplicationWindow {
         StyledTabButton { labelText: qsTr("车位检测") }
         StyledTabButton { labelText: qsTr("车流量检测") }
         StyledTabButton { labelText: qsTr("交通标识检测") }
-        StyledTabButton { labelText: qsTr("驾照识别") }
+        StyledTabButton { labelText: qsTr("驾照/身份证识别") }
     }
 
     StackLayout {
@@ -346,4 +406,35 @@ ApplicationWindow {
             width: parent.width
         }
     }
+
+    Dialog {
+            id: gradioInferenceRequiredDialog
+            title: qsTr("提示")
+            standardButtons: Dialog.Ok
+            modal: true
+            anchors.centerIn: parent
+
+            Text {
+                text: qsTr("请先启动推理服务器。\n\n请等待状态栏显示「推理服务器启动成功」后再启动 Gradio Web 版。")
+                font.pixelSize: 14
+                wrapMode: Text.Wrap
+                width: 380
+            }
+        }
+
+        Dialog {
+            id: gradioLaunchFailedDialog
+            title: qsTr("Gradio Web 启动失败")
+            standardButtons: Dialog.Ok
+            modal: true
+            anchors.centerIn: parent
+            property string messageText: ""
+
+            Text {
+                text: gradioLaunchFailedDialog.messageText
+                font.pixelSize: 14
+                wrapMode: Text.Wrap
+                width: 400
+            }
+        }
 }

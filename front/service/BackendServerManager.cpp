@@ -59,6 +59,11 @@ bool BackendServerManager::serverFailed() const
     return m_serverFailed;
 }
 
+bool BackendServerManager::serverBusy() const
+{
+    return m_serverBusy;
+}
+
 void BackendServerManager::setStatusText(const QString &text)
 {
     if (m_statusText == text)
@@ -81,6 +86,14 @@ void BackendServerManager::setServerFailed(bool failed)
         return;
     m_serverFailed = failed;
     emit serverFailedChanged();
+}
+
+void BackendServerManager::setServerBusy(bool busy)
+{
+    if (m_serverBusy == busy)
+        return;
+    m_serverBusy = busy;
+    emit serverBusyChanged();
 }
 
 QString BackendServerManager::resolveBackendRoot() const
@@ -133,6 +146,7 @@ void BackendServerManager::markSuccess()
 
     m_startupFinished = true;
     stopPolling();
+    setServerBusy(false);
     setServerFailed(false);
     setServerReady(true);
     setStatusText(tr("推理服务器启动成功!"));
@@ -146,6 +160,7 @@ void BackendServerManager::markFailure()
 
     m_startupFinished = true;
     stopPolling();
+    setServerBusy(false);
     setServerReady(false);
     setServerFailed(true);
     setStatusText(tr("推理服务器启动失败!"));
@@ -163,11 +178,16 @@ void BackendServerManager::stopOwnedProcess()
     if (!m_startedByUs || !m_process)
         return;
 
+    m_process->disconnect(this);
     if (m_process->state() != QProcess::NotRunning) {
         m_process->terminate();
         if (!m_process->waitForFinished(3000))
             m_process->kill();
     }
+
+    m_process->deleteLater();
+    m_process = nullptr;
+    m_startedByUs = false;
 }
 
 void BackendServerManager::startServer()
@@ -175,6 +195,7 @@ void BackendServerManager::startServer()
     if (m_startupFinished || m_pollTimer->isActive())
         return;
 
+    setServerBusy(true);
     setServerReady(false);
     setServerFailed(false);
     setStatusText(tr("正在启动推理服务器..."));
@@ -202,6 +223,15 @@ void BackendServerManager::startServer()
         launchBackendProcess(backendRoot, pythonExe);
         m_pollTimer->start();
     });
+}
+
+void BackendServerManager::restartServer()
+{
+    stopPolling();
+    stopOwnedProcess();
+    m_startupFinished = false;
+    m_startupElapsedMs = 0;
+    startServer();
 }
 
 bool BackendServerManager::clearTemporaryFiles()

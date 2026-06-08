@@ -42,6 +42,7 @@ qt_add_qml_module(appfront
         service/TrafficSignDetectService.h service/TrafficSignDetectService.cpp
         service/TrafficFlowDetectService.h service/TrafficFlowDetectService.cpp
         service/DriverLicenseDetectService.h service/DriverLicenseDetectService.cpp
+        service/GradioWebLauncher.h service/GradioWebLauncher.cpp
 
 )
 
